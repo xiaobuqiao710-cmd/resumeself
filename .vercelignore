@@ -1,0 +1,37 @@
+# ---- 依赖与构建产物（Vercel 会自己安装与构建）----
+node_modules
+dist
+.vercel
+.vercel-tmp
+
+# ---- 本机密钥与私人数据：绝不能上传到构建环境 ----
+.env
+.env.local
+.env.*.local
+.bridge-token
+**/.bridge-token
+.mail-tmp
+
+# ---- 本地日志与临时文件 ----
+*.log
+*.tsbuildinfo
+bridge.log
+preview.log
+.DS_Store
+
+# ---- 上轮改造的本地素材（与站点无关）----
+docx_content.txt
+resume_content.txt
+agent_resume.txt
+extract_docx.py
+extract_resume.py
+pylibs
+
+# ---- 本地邮件桥：凭据与令牌绝不入库 ----
+mail-bridge/node_modules
+mail-bridge/bridge.config.json
+mail-bridge/bridge.token
+mail-bridge/npm-debug.log
+
+# ---- 旧 Supabase 原型的本机备份：只是存档，且含私人数据，绝不上传 ----
+_legacy-supabase-prototype-*

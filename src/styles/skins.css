@@ -1,0 +1,521 @@
+/* =========================================================================
+   skins.css — 皮肤市场
+   =========================================================================
+
+   三条约定，改这个文件之前请先读完 —— 每一条都是踩过的坑：
+
+   ① **变量层写两个选择器**：`[data-skin="x"], :root[data-skin="x"]`。
+      前者让「皮肤市场」里的迷你预览卡能局部吃到变量（预览卡是个 div，不是 :root）；
+      后者保证在 <html> 上能压过 global.css 的 `:root[data-theme="light"]`
+      —— 两者特异性都是 (0,2,0)，所以本文件必须**在 components.css 之后**载入
+      （见 main.tsx 的 import 顺序），靠文档顺序取胜。
+
+   ② **结构层一律加 `:root[data-skin="x"]` 前缀**，不要写成 `[data-skin="x"] .glass`：
+      后者会连预览卡内部的元素一起命中，预览就成了「真皮肤 + 真结构」的混合体，
+      纸上会出现玻璃高光这类鬼东西。
+
+   ③ **空阴影必须写成 `0 0 0 0 transparent`，不能写 none**。
+      `.glass { box-shadow: var(--glass-shadow), var(--glass-inset) }` 是一个逗号分隔的
+      shadow 列表，`none` 混在列表里会让**整条声明**失效 —— 结果不是「没有阴影」，
+      而是「连另一条阴影一起没了」，纸上会出现本该有的细投影也消失的诡异现象。
+   ========================================================================= */
+
+/* ---------- 迷你预览卡（皮肤市场里那张缩略图）----------
+ * 只用变量作画，所以它天然随 data-skin 变化 —— 不需要为每款皮肤手写一张预览。
+ * 变量由卡片自身的 [data-skin] 提供（见约定 ①），不会从 :root 继承错。
+ */
+.skpv {
+  position: relative;
+  height: 118px;
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: var(--bg-1);
+  border: 1px solid var(--glass-brd);
+  display: flex;
+  user-select: none;
+}
+.skpv__side {
+  width: 31%;
+  padding: 9px 8px;
+  background: var(--glass-bg-strong);
+  border-right: 1px solid var(--glass-brd);
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.skpv__main { flex: 1; min-width: 0; padding: 9px 9px; display: flex; flex-direction: column; gap: 7px; }
+.skpv__logo { width: 17px; height: 17px; border-radius: 5px; background: var(--accent-grad); flex: none; }
+.skpv__navrow { display: flex; align-items: center; gap: 6px; }
+.skpv__navdot { width: 5px; height: 5px; border-radius: 2px; background: var(--tx-2); opacity: .42; flex: none; }
+.skpv__line { height: 5px; border-radius: 3px; background: var(--tx-1); opacity: .26; }
+.skpv__line--sm { height: 4px; opacity: .16; }
+.skpv__w40 { width: 40%; } .skpv__w55 { width: 55%; } .skpv__w70 { width: 70%; } .skpv__w85 { width: 85%; }
+.skpv__head { display: flex; align-items: center; gap: 6px; margin-bottom: 1px; }
+.skpv__h { height: 8px; width: 44%; border-radius: 3px; background: var(--tx-1); opacity: .68; }
+.skpv__pill { height: 10px; width: 30px; border-radius: 999px; background: var(--accent-grad); flex: none; }
+.skpv__row { display: flex; gap: 6px; }
+.skpv__card {
+  flex: 1; min-width: 0; height: 30px;
+  border-radius: var(--r-sm);
+  background: var(--glass-bg-strong);
+  border: 1px solid var(--glass-brd);
+  display: flex; flex-direction: column; justify-content: center; gap: 4px;
+  padding: 0 7px;
+}
+.skpv__card .skpv__line { width: 62%; }
+.skpv__card .skpv__line--sm { width: 40%; }
+.skpv__foot { margin-top: auto; display: flex; align-items: center; gap: 6px; }
+
+/* 预览卡上的「使用中」浮标：贴在右上角，不占布局 */
+.skpv__on {
+  position: absolute; top: 7px; right: 7px;
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px; border-radius: 999px;
+  font-size: 10.5px; font-weight: 700; letter-spacing: .02em;
+  background: var(--accent-grad); color: #0b1020;
+  box-shadow: 0 3px 10px -4px rgba(0, 0, 0, .5);
+}
+:root[data-skin="paper"] .skpv__on,
+:root[data-skin="ink"] .skpv__on,
+:root[data-skin="eye"] .skpv__on { color: #fff; }
+
+/* ---------- 皮肤市场的卡片网格 ---------- */
+.skmkt { display: grid; grid-template-columns: repeat(auto-fill, minmax(236px, 1fr)); gap: 14px; }
+.skmkt__card {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 10px; border-radius: var(--r-lg);
+  border: 1px solid var(--glass-brd); background: var(--glass-bg);
+  text-align: left; cursor: pointer;
+  transition: transform var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease),
+    box-shadow var(--t-fast) var(--ease);
+}
+.skmkt__card:hover { transform: translateY(-3px); border-color: var(--glass-brd-strong); box-shadow: var(--glass-inset), 0 16px 30px -18px rgba(0, 0, 0, .6); }
+.skmkt__card--on { border-color: var(--accent-2); box-shadow: 0 0 0 1px var(--accent-2), var(--glass-inset); }
+.skmkt__meta { display: flex; flex-direction: column; gap: 3px; padding: 0 3px 3px; }
+.skmkt__name { font-size: 13.5px; font-weight: 680; letter-spacing: -.01em; display: flex; align-items: center; gap: 6px; }
+.skmkt__sub { font-size: 11.5px; color: var(--tx-3); line-height: 1.55; }
+.skmkt__dots { display: flex; gap: 4px; margin-left: auto; flex: none; }
+.skmkt__dot { width: 10px; height: 10px; border-radius: 50%; border: 1px solid rgba(0, 0, 0, .12); }
+
+/* 市场顶部的说明条 */
+.skmkt__lead {
+  display: flex; gap: 8px; align-items: flex-start;
+  padding: 10px 12px; margin-bottom: 16px;
+  border-radius: var(--r-md);
+  background: var(--glass-bg); border: 1px solid var(--glass-brd);
+  font-size: 12px; line-height: 1.75; color: var(--tx-3);
+}
+.skmkt__lead svg { flex: none; margin-top: 2px; color: var(--accent-1); }
+.skmkt__lead b { color: var(--tx-1); font-weight: 640; }
+@media (max-width: 620px) { .skmkt { grid-template-columns: 1fr; } }
+
+/* =========================================================================
+   皮肤一：纸 · 手记（Claude 式纸质阅读感）
+   纸张的物理事实：不透明、无高光、投影极浅、边缘是「裁出来的」而不是「吹出来的」。
+   所以这套皮肤的关键动作是**关掉所有玻璃特性**：backdrop 模糊、镜面 sheen、色球。
+   ========================================================================= */
+[data-skin="paper"],
+:root[data-skin="paper"] {
+  --bg-0: #efeade;
+  --bg-1: #faf9f5;
+  --bg-2: #ffffff;
+
+  /* 层次靠"纸的叠放"表达：页面是暖白纸，面板是压在上面的米色纸，弹窗与选中项是纯白纸。
+     三个层次必须真的拉开 —— 一开始把 glass-bg 也写成 #fff，结果侧栏与选中项同色，
+     选中态只剩一条 1px 边框，肉眼几乎看不见。 */
+  --glass-bg: #f4f1e8;
+  --glass-bg-strong: #ffffff;
+  --glass-brd: #e7e3d8;
+  --glass-brd-strong: #d3ccbc;
+  --glass-hi: rgba(255, 255, 255, 0);
+  --glass-shadow: 0 1px 1px rgba(80, 66, 40, .04), 0 10px 24px -18px rgba(80, 66, 40, .3);
+  --glass-inset: 0 0 0 0 transparent;
+
+  --tx-1: #26231e;
+  --tx-2: #4b463d;
+  --tx-3: #706a5e;
+  --tx-4: #9c9488;
+
+  --ok: #3f7a5e;
+  --warn: #b0771d;
+  --danger: #b4443a;
+  --info: #3a6ea5;
+
+  --accent-1: #d97757;
+  --accent-2: #c96442;
+  --accent-3: #b4552f;
+  --accent-grad: linear-gradient(135deg, #d97757, #c96442);
+  --accent-grad-soft: linear-gradient(135deg, rgba(217, 119, 87, .15), rgba(201, 100, 66, .09));
+  --accent-ring: rgba(201, 100, 66, .26);
+  --accent-glow: rgba(201, 100, 66, .8);
+  --accent-glow-soft: rgba(150, 74, 48, .45);
+
+  --topbar-bg: rgba(250, 249, 245, .95);
+  --blur-glass: none;
+  --blur-strong: none;
+
+  --r-xs: 3px; --r-sm: 5px; --r-md: 7px; --r-lg: 9px; --r-xl: 11px; --r-pill: 999px;
+}
+:root[data-skin="paper"] .aurora { background: var(--bg-1); }
+:root[data-skin="paper"] .aurora__blob { display: none; }
+/* 纸纤维：把原来那层噪点放大、加重一点，才像纸不像屏幕噪点 */
+:root[data-skin="paper"] .aurora__grain { opacity: .12; mix-blend-mode: multiply; }
+:root[data-skin="paper"] .glass::after { background: none; }
+:root[data-skin="paper"] .topbar { border-bottom-color: #e4dfd3; }
+:root[data-skin="paper"] .modal-overlay {
+  background: rgba(48, 40, 28, .34);
+  -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
+}
+:root[data-skin="paper"] .btn { -webkit-backdrop-filter: none; backdrop-filter: none; }
+:root[data-skin="paper"] .btn--primary { color: #fff; box-shadow: 0 6px 16px -10px rgba(201, 100, 66, .8); }
+:root[data-skin="paper"] .btn--primary:hover { box-shadow: 0 10px 20px -10px rgba(201, 100, 66, .9); }
+:root[data-skin="paper"] .badge--ok { color: #2f6a4e; background: rgba(63, 122, 94, .1); border-color: rgba(63, 122, 94, .28); }
+:root[data-skin="paper"] .badge--info { color: #2f5d8a; background: rgba(58, 110, 165, .1); border-color: rgba(58, 110, 165, .28); }
+:root[data-skin="paper"] .badge--warn { color: #8a5c14; background: rgba(176, 119, 29, .12); border-color: rgba(176, 119, 29, .3); }
+:root[data-skin="paper"] .badge--danger { color: #9b3a31; background: rgba(180, 68, 58, .1); border-color: rgba(180, 68, 58, .28); }
+:root[data-skin="paper"] .badge--accent { color: #a8502f; background: rgba(217, 119, 87, .13); border-color: rgba(217, 119, 87, .3); }
+/* 标题改用衬线 —— 这是「阅读感」的一半来源；正文仍是黑体，中文小字号下才看得清 */
+:root[data-skin="paper"] .h-display,
+:root[data-skin="paper"] .h-title,
+:root[data-skin="paper"] .section-head__t,
+:root[data-skin="paper"] .brand__name,
+:root[data-skin="paper"] .modal__title,
+:root[data-skin="paper"] .card__title,
+:root[data-skin="paper"] .topbar__title,
+:root[data-skin="paper"] .login-card .card__title,
+:root[data-skin="paper"] .landing__lead {
+  font-family: "Iowan Old Style", "Palatino Linotype", Palatino, "Songti SC", "Noto Serif SC", Georgia, serif;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+:root[data-skin="paper"] .grad-text { -webkit-text-fill-color: initial; color: var(--accent-2); background: none; }
+:root[data-skin="paper"] .grid, :root[data-skin="paper"] .app__scroll { letter-spacing: 0; }
+
+/* =========================================================================
+   皮肤二：宣纸 · 水墨
+   宣纸比打印纸更黄、更糙；中式版式的特征是没有投影、只有线 —— 靠 1px 细线与
+   留白分区，而不是靠卡片浮起来。朱砂只用在极小面积上（印、强调），大面积是灰墨阶。
+   ========================================================================= */
+[data-skin="ink"],
+:root[data-skin="ink"] {
+  --bg-0: #eee6d2;
+  --bg-1: #f6f0e0;
+  --bg-2: #fbf7ec;
+
+  /* 宣纸 → 裱在上面的奶白签条 → 弹窗 */
+  --glass-bg: rgba(255, 255, 255, .5);
+  --glass-bg-strong: #fffdf8;
+  --glass-brd: rgba(118, 102, 70, .24);
+  --glass-brd-strong: rgba(92, 78, 50, .44);
+  --glass-hi: rgba(255, 255, 255, 0);
+  --glass-shadow: 0 0 0 0 transparent;
+  --glass-inset: 0 0 0 0 transparent;
+
+  --tx-1: #1f1b15;
+  --tx-2: #423b2f;
+  --tx-3: #6a6152;
+  --tx-4: #9c9179;
+
+  --ok: #3c6e52;
+  --warn: #a87a28;
+  --danger: #a63a2e;
+  --info: #3a5f7e;
+
+  --accent-1: #a63a2e;
+  --accent-2: #8c2f26;
+  --accent-3: #c25a46;
+  --accent-grad: linear-gradient(135deg, #a63a2e, #8c2f26);
+  --accent-grad-soft: linear-gradient(135deg, rgba(166, 58, 46, .12), rgba(140, 47, 38, .06));
+  --accent-ring: rgba(140, 47, 38, .24);
+  --accent-glow: rgba(140, 47, 38, .75);
+  --accent-glow-soft: rgba(110, 36, 30, .42);
+
+  --topbar-bg: rgba(251, 247, 236, .95);
+  --blur-glass: none;
+  --blur-strong: none;
+
+  --r-xs: 2px; --r-sm: 3px; --r-md: 4px; --r-lg: 5px; --r-xl: 6px; --r-pill: 999px;
+}
+:root[data-skin="ink"] .aurora { background: var(--bg-1); }
+:root[data-skin="ink"] .aurora__blob { display: none; }
+:root[data-skin="ink"] .aurora__grain { opacity: .16; mix-blend-mode: multiply; }
+:root[data-skin="ink"] .glass::after { background: none; }
+:root[data-skin="ink"] .topbar { border-bottom-color: rgba(118, 102, 70, .28); }
+:root[data-skin="ink"] .modal-overlay {
+  background: rgba(38, 32, 20, .34);
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+}
+:root[data-skin="ink"] .btn { -webkit-backdrop-filter: none; backdrop-filter: none; }
+:root[data-skin="ink"] .btn--primary { color: #fbf7ec; box-shadow: none; }
+:root[data-skin="ink"] .badge--ok { color: #33604a; background: rgba(60, 110, 82, .1); border-color: rgba(60, 110, 82, .3); }
+:root[data-skin="ink"] .badge--info { color: #33566f; background: rgba(58, 95, 126, .1); border-color: rgba(58, 95, 126, .3); }
+:root[data-skin="ink"] .badge--warn { color: #7f5c1c; background: rgba(168, 122, 40, .12); border-color: rgba(168, 122, 40, .32); }
+:root[data-skin="ink"] .badge--danger { color: #8f3227; background: rgba(166, 58, 46, .1); border-color: rgba(166, 58, 46, .3); }
+:root[data-skin="ink"] .badge--accent { color: #8c2f26; background: rgba(166, 58, 46, .11); border-color: rgba(166, 58, 46, .32); }
+/* 墨线分区：把「浮起来的玻璃」压成「划了线的纸」 */
+:root[data-skin="ink"] .glass { border-width: 1px; }
+:root[data-skin="ink"] .divider { background: rgba(118, 102, 70, .3); }
+:root[data-skin="ink"] .brand__logo { border-radius: 3px; box-shadow: none; }
+:root[data-skin="ink"] .brand__name,
+:root[data-skin="ink"] .h-display,
+:root[data-skin="ink"] .section-head__t,
+:root[data-skin="ink"] .modal__title,
+:root[data-skin="ink"] .card__title,
+:root[data-skin="ink"] .topbar__title {
+  font-family: "Songti SC", "Noto Serif SC", "STSong", "SimSun", Georgia, serif;
+  font-weight: 600;
+  letter-spacing: .01em;
+}
+:root[data-skin="ink"] .grad-text { -webkit-text-fill-color: initial; color: var(--accent-2); background: none; }
+/* 日历今日、计时数字这类「实心药丸」在墨色下换成朱砂底白字 */
+:root[data-skin="ink"] .cal__cell--today .cal__num { color: #fbf7ec; }
+
+/* =========================================================================
+   皮肤三：石墨 · 极简（Swiss）
+   国际主义版式的两条硬规矩：一切都是直角、一切装饰都可疑。
+   所以圆角归零、阴影归零、强调色只留黑与一条蓝，正文压到中性灰阶。
+   ========================================================================= */
+[data-skin="graphite"],
+:root[data-skin="graphite"] {
+  --bg-0: #ececee;
+  --bg-1: #f4f4f5;
+  --bg-2: #ffffff;
+
+  --glass-bg: #ffffff;
+  --glass-bg-strong: #ffffff;
+  --glass-brd: #e4e4e7;
+  --glass-brd-strong: #c9c9cf;
+  --glass-hi: rgba(255, 255, 255, 0);
+  --glass-shadow: 0 1px 2px rgba(0, 0, 0, .04);
+  --glass-inset: 0 0 0 0 transparent;
+
+  --tx-1: #111113;
+  --tx-2: #3f3f46;
+  --tx-3: #6f6f78;
+  --tx-4: #a1a1aa;
+
+  --ok: #15803d;
+  --warn: #a16207;
+  --danger: #b91c1c;
+  --info: #1d4ed8;
+
+  --accent-1: #18181b;
+  --accent-2: #3f3f46;
+  --accent-3: #2563eb;
+  --accent-grad: linear-gradient(135deg, #18181b, #2e2e33);
+  --accent-grad-soft: linear-gradient(135deg, rgba(24, 24, 27, .08), rgba(46, 46, 51, .05));
+  --accent-ring: rgba(24, 24, 27, .18);
+  /* 石墨是「零装饰」，发光也一并压掉 —— 卡片悬浮只靠位移，不靠光晕 */
+  --accent-glow: rgba(24, 24, 27, .5);
+  --accent-glow-soft: rgba(24, 24, 27, .22);
+
+  --topbar-bg: rgba(255, 255, 255, .95);
+  --blur-glass: none;
+  --blur-strong: none;
+
+  --r-xs: 0px; --r-sm: 2px; --r-md: 2px; --r-lg: 3px; --r-xl: 4px; --r-pill: 999px;
+}
+:root[data-skin="graphite"] .aurora { background: var(--bg-1); }
+:root[data-skin="graphite"] .aurora__blob { display: none; }
+:root[data-skin="graphite"] .aurora__grain { display: none; }
+:root[data-skin="graphite"] .glass::after { background: none; }
+:root[data-skin="graphite"] .topbar { border-bottom-color: #e4e4e7; }
+:root[data-skin="graphite"] .modal-overlay {
+  background: rgba(24, 24, 27, .3);
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+}
+:root[data-skin="graphite"] .btn { -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: none; }
+:root[data-skin="graphite"] .btn:hover { box-shadow: none; background: #f4f4f5; }
+:root[data-skin="graphite"] .btn--primary { color: #fafafa; box-shadow: none; }
+:root[data-skin="graphite"] .btn--primary:hover { background: #2e2e33; filter: none; }
+:root[data-skin="graphite"] .nav__badge,
+:root[data-skin="graphite"] .tabbar__badge,
+:root[data-skin="graphite"] .acct__avatar { color: #fafafa; }
+:root[data-skin="graphite"] .badge--ok { color: #15803d; background: rgba(21, 128, 61, .08); border-color: rgba(21, 128, 61, .28); }
+:root[data-skin="graphite"] .badge--info { color: #1d4ed8; background: rgba(29, 78, 216, .08); border-color: rgba(29, 78, 216, .28); }
+:root[data-skin="graphite"] .badge--warn { color: #a16207; background: rgba(161, 98, 7, .08); border-color: rgba(161, 98, 7, .28); }
+:root[data-skin="graphite"] .badge--danger { color: #b91c1c; background: rgba(185, 28, 28, .08); border-color: rgba(185, 28, 28, .28); }
+:root[data-skin="graphite"] .badge--accent { color: #1d4ed8; background: rgba(37, 99, 235, .08); border-color: rgba(37, 99, 235, .3); }
+:root[data-skin="graphite"] .brand__logo { box-shadow: none; background: #18181b; color: #fafafa; }
+:root[data-skin="graphite"] .grad-text { -webkit-text-fill-color: initial; color: var(--tx-1); background: none; }
+:root[data-skin="graphite"] .nav__item--active::before { background: var(--tx-1); }
+
+/* =========================================================================
+   皮肤四：豆绿 · 护眼
+   取色直接照 **WPS 护眼模式** 的默认底色 —— `#CCE8CF`（RGB 204,232,207）。
+   这一支「护眼绿」之所以被普遍接受，是因为它同时满足三件事：
+     · 色相落在黄绿区间（绿里带黄）→ 蓝通道被压得比红绿都低，蓝光最少；
+     · 明度约 90%、饱和度只有 12% 上下 → 大面积铺开不跳，白纸换成它落差最小；
+     · 与黑字对照度约 12:1，比纯白（21:1）软一半，是长时间阅读的甜点区。
+   ⚠️ 上一版这里用的是一支偏灰的 `#e6efe1`（明度 94%、饱和 8%），看着像「褪色的灰」
+   而不是「护眼绿」—— 所以这一版的关键动作是**把绿提回 WPS 那一档**，别再往灰里调。
+   配套的三件事：
+     · 面板比页面**更亮更中性**（不是更绿），否则整屏一片绿会糊成一个色块、分不出层次；
+       这也和 WPS 本身一致 —— 文档区是绿的，工具栏与侧栏是白/浅灰的。
+     · 强调色用明显更深的绿（#2f7d3e），确保主按钮在绿底上还立得住，
+       而且白字对照度 5.1:1。
+     · 正文不用纯黑用近黑（#1b241a）：纯黑压在浅绿上边缘会有轻微光晕感。
+   ========================================================================= */
+[data-skin="eye"],
+:root[data-skin="eye"] {
+  --bg-0: #bcdcbf;
+  --bg-1: #cce8cf;   /* = WPS 护眼绿，页面主色 */
+  --bg-2: #dcf0de;
+
+  /* 三层叠放：页面是护眼绿 → 面板浅一档且更中性 → 选中项与弹窗接近白。
+     三层必须真的拉开，否则选中态只剩一条 1px 边框（这个坑在 paper 上踩过一次）。 */
+  --glass-bg: #dff1e0;
+  --glass-bg-strong: #f2faf3;
+  --glass-brd: #b2d4b6;
+  --glass-brd-strong: #8fbc95;
+  --glass-hi: rgba(255, 255, 255, 0);
+  --glass-shadow: 0 1px 1px rgba(24, 58, 30, .06), 0 10px 24px -18px rgba(24, 58, 30, .3);
+  --glass-inset: 0 0 0 0 transparent;
+
+  --tx-1: #1b241a;
+  --tx-2: #3c4638;
+  --tx-3: #66705f;
+  --tx-4: #95a08f;
+
+  --ok: #1f7a4a;
+  --warn: #9a7521;
+  --danger: #b0483c;
+  --info: #3a6b8c;
+
+  /* 强调色比底色深得多才立得住。grad 亮端 #40924e 是算过的：
+     再亮一点主按钮上的白字就掉到 3.8:1 以下了。 */
+  --accent-1: #40924e;
+  --accent-2: #2f7d3e;
+  --accent-3: #6cb877;
+  --accent-grad: linear-gradient(135deg, #40924e, #2f7d3e);
+  --accent-grad-soft: linear-gradient(135deg, rgba(64, 146, 78, .2), rgba(47, 125, 62, .11));
+  --accent-ring: rgba(47, 125, 62, .3);
+  --accent-glow: rgba(47, 125, 62, .8);
+  --accent-glow-soft: rgba(47, 125, 62, .45);
+
+  --topbar-bg: rgba(204, 232, 207, .95);
+  --blur-glass: none;
+  --blur-strong: none;
+
+  --r-xs: 4px; --r-sm: 7px; --r-md: 10px; --r-lg: 13px; --r-xl: 16px; --r-pill: 999px;
+}
+:root[data-skin="eye"] .aurora { background: var(--bg-1); }
+:root[data-skin="eye"] .aurora__blob { display: none; }
+/* 颗粒压到 .05：底色本身已经有饱和度了，再叠一层 multiply 会往灰里跑 */
+:root[data-skin="eye"] .aurora__grain { opacity: .05; mix-blend-mode: multiply; }
+:root[data-skin="eye"] .glass::after { background: none; }
+:root[data-skin="eye"] .topbar { border-bottom-color: #b2d4b6; }
+:root[data-skin="eye"] .modal-overlay {
+  background: rgba(20, 46, 24, .34);
+  -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
+}
+:root[data-skin="eye"] .btn { -webkit-backdrop-filter: none; backdrop-filter: none; }
+:root[data-skin="eye"] .btn--primary { color: #fff; box-shadow: 0 6px 16px -10px rgba(47, 125, 62, .8); }
+:root[data-skin="eye"] .btn--primary:hover { box-shadow: 0 10px 20px -10px rgba(47, 125, 62, .9); }
+:root[data-skin="eye"] .badge--ok { color: #1c6a42; background: rgba(31, 122, 74, .1); border-color: rgba(31, 122, 74, .28); }
+:root[data-skin="eye"] .badge--info { color: #2f5c78; background: rgba(58, 107, 140, .1); border-color: rgba(58, 107, 140, .28); }
+:root[data-skin="eye"] .badge--warn { color: #7d5c14; background: rgba(154, 117, 33, .12); border-color: rgba(154, 117, 33, .3); }
+:root[data-skin="eye"] .badge--danger { color: #96382e; background: rgba(176, 72, 60, .1); border-color: rgba(176, 72, 60, .28); }
+:root[data-skin="eye"] .badge--accent { color: #2c6b3a; background: rgba(64, 146, 78, .16); border-color: rgba(64, 146, 78, .34); }
+:root[data-skin="eye"] .grad-text { -webkit-text-fill-color: initial; color: var(--accent-2); background: none; }
+:root[data-skin="eye"] .cal__cell--today .cal__num { color: #fff; }
+
+/* =========================================================================
+   浅色实心皮肤（纸 / 墨 / 石墨 / 青绿）的公共修正
+   —— 这三款把「半透明玻璃」换成了「不透明纸面」，而 components.css 里那批控件的底色
+      是照「叠在深底上的半透明白」调的（.42~.72 的白）。铺到实心白面板上就糊成一片：
+      输入框看不出边界、看板列与卡片同色、日历格像没画、鼠标划过行毫无反应。
+      三个皮肤共用一段规则，免得同一件事写三遍后各自漂移。
+
+      悬浮底色（--hover-bg）必须与常态面板**不同**才有意义 —— 玻璃皮肤里
+      「hover = --glass-bg」是成立的（底下的极光会透出来产生变化），
+      但在不透明纸面上，同一个值画上去等于什么都没画。
+   ========================================================================= */
+:root[data-skin="paper"]    { --hover-bg: rgba(38, 32, 22, .055); --sel-bg: rgba(38, 32, 22, .075); --field-bg: #ffffff;  --sunken-bg: rgba(38, 32, 22, .045); }
+:root[data-skin="ink"]      { --hover-bg: rgba(60, 48, 28, .065); --sel-bg: rgba(60, 48, 28, .085); --field-bg: #fffdf7;  --sunken-bg: rgba(74, 60, 34, .055); }
+:root[data-skin="graphite"] { --hover-bg: rgba(0, 0, 0, .045);     --sel-bg: rgba(0, 0, 0, .07);      --field-bg: #ffffff;  --sunken-bg: rgba(0, 0, 0, .032); }
+:root[data-skin="eye"]      { --hover-bg: rgba(20, 72, 34, .075);  --sel-bg: rgba(20, 72, 34, .105);  --field-bg: #f0f8f0;  --sunken-bg: rgba(20, 72, 34, .055); }
+
+/* 选中项：比悬浮再重一档，让「我正在这里」与「鼠标路过这里」可区分 */
+:is(:root[data-skin="paper"], :root[data-skin="ink"], :root[data-skin="graphite"], :root[data-skin="eye"])
+  :is(.nav__item--active, .tabbar__btn--active, .bank-item--on, .segmented__btn--active) {
+  background: var(--sel-bg);
+}
+:is(:root[data-skin="paper"], :root[data-skin="ink"], :root[data-skin="graphite"], :root[data-skin="eye"])
+  :is(.btn:not(.btn--primary):not(.btn--danger):hover) { background: var(--hover-bg); }
+
+/* 一行覆盖所有「划过去该有反应」的行 / 项。
+   用 :is() 而不是把四款皮肤 × 十个选择器铺成四十行 —— 前者特异性取参数最高者，
+   (0,4,0) 稳压 components.css 里的 (0,2,0)，后者只是更难维护。 */
+:is(:root[data-skin="paper"], :root[data-skin="ink"], :root[data-skin="graphite"], :root[data-skin="eye"])
+  :is(.nav__item, .list-row, .approw, .acc__head, .bank-item, .qset__item,
+      .mail-item, .cal__cell, .remind-bar__sum, .copy-btn):hover {
+  background: var(--hover-bg);
+}
+
+/* 输入类控件：实心浅底 + 清楚的边框，才认得出「这里能打字」 */
+:is(:root[data-skin="paper"], :root[data-skin="ink"], :root[data-skin="graphite"], :root[data-skin="eye"])
+  :is(.input, .textarea, .select) { background: var(--field-bg); }
+:is(:root[data-skin="paper"], :root[data-skin="ink"], :root[data-skin="graphite"], :root[data-skin="eye"])
+  :is(.input:focus, .textarea:focus, .select:focus) { background: var(--field-bg); }
+
+/* 凹陷面（看板列、资料字段、邮件条目、日历格、进度条槽…）：比面板**沉一层**。
+ *
+ * ⚠️ `:not()` 那三处不是装饰，是必须的：这条规则特异性是 (0,3,0)，
+ *    而 `.switch--on` / `.todo-check--done` / `.mail-item--active` 都只是 (0,1,0)，
+ *    它们只改 `background` 一项。不加 `:not()` 的话这条规则会把它们的底色**覆盖掉**，
+ *    于是：开关永远显示「关」、已完成的勾选框变成白勾配浅底（看不见勾）、
+ *    选中的邮件条目丢掉高亮底。这三处都属于「一改皮肤就悄悄坏掉」的隐蔽型回归 ——
+ *    因为它们只在**状态变化时**才显形，静态截图里根本看不出来。
+ *    `.switch` 整体不在这条名单里：它的关闭态底是 `rgba(0,0,0,.3)`（一条看得见的轨道），
+ *    换成 --sunken-bg 那种近乎透明的一层，开关就整个消失了。 */
+:is(:root[data-skin="paper"], :root[data-skin="ink"], :root[data-skin="graphite"], :root[data-skin="eye"])
+  :is(.kcol, .db-field, .mail-item:not(.mail-item--active), .cal__cell,
+      .todo-check:not(.todo-check--done), .segmented,
+      .kbd, .progress-bar, .progress-mini) { background: var(--sunken-bg); }
+/* 日历格做成「白纸格」：一列列格子是日历最要紧的结构信息 */
+:is(:root[data-skin="paper"], :root[data-skin="ink"], :root[data-skin="graphite"], :root[data-skin="eye"]) .cal__cell { background: var(--field-bg); }
+
+/* 「其他」类事件：base 里是紫色底 + 紫字（`rgba(167,139,250,…)`），
+   在浅色主题下被映射成 violet (#6d28d9)。其余事件色（截止红 / 面试蓝 / 笔试琥珀 /
+   offer 绿）都是语义色，跨皮肤通用；只有这一个「其他」没有语义、只是「剩下的」，
+   所以它应该跟着皮肤走，回落到该皮肤自己的强调色。 */
+:is(:root[data-skin="paper"], :root[data-skin="ink"], :root[data-skin="graphite"], :root[data-skin="eye"]) .ev-other {
+  background: var(--accent-grad-soft); color: var(--accent-2); border-color: var(--accent-2);
+}
+
+/* ---------- 强调色实心底上的文字：一律白字 ----------
+ * 这三个都是「--accent-grad 实心底 + 深色字」—— 那套深色字是照紫色玻璃调的，
+ * 换成朱砂红 / 叶绿之后只剩 3.5:1。统一改白字，五款皮肤都稳。
+ * （`.tile` / `.stat__ico` 不在其列：它们用的是 accent-grad-**soft** 淡底，仍要深字。）
+ */
+:is(:root[data-skin="paper"], :root[data-skin="ink"], :root[data-skin="eye"])
+  :is(.acct__avatar, .nav__badge, .tabbar__badge) { color: #fff; }
+
+/* ---------- 选中文字底色 ----------
+ * 全局的 ::selection 也是紫的（global.css），在纸 / 墨 / 石墨 / 青绿上都是外来色。
+ */
+:root[data-skin="paper"] ::selection { background: rgba(217, 119, 87, .26); color: #26231e; }
+:root[data-skin="ink"] ::selection { background: rgba(166, 58, 46, .22); color: #1f1b15; }
+:root[data-skin="graphite"] ::selection { background: rgba(24, 24, 27, .16); color: #111113; }
+:root[data-skin="eye"] ::selection { background: rgba(64, 146, 78, .28); color: #1b241a; }
+
+/* ---------- 切换皮肤时的过渡 ----------
+ * 只在切换的那一小会儿给底色加过渡：全局常驻 transition 会拖慢列表滚动，
+ * 而「点一下整页啪地换色」又太硬。320ms 刚好，且带不动 prefers-reduced-motion。
+ */
+html[data-skin-transition] body,
+html[data-skin-transition] .aurora,
+html[data-skin-transition] .glass,
+html[data-skin-transition] .topbar,
+html[data-skin-transition] .sidebar {
+  transition: background-color 320ms var(--ease), border-color 320ms var(--ease),
+    color 320ms var(--ease), box-shadow 320ms var(--ease);
+}
+@media (prefers-reduced-motion: reduce) {
+  html[data-skin-transition] body,
+  html[data-skin-transition] .aurora,
+  html[data-skin-transition] .glass,
+  html[data-skin-transition] .topbar,
+  html[data-skin-transition] .sidebar { transition: none; }
+}

@@ -1,0 +1,38 @@
+.vercel
+
+# ---- 依赖与构建产物 ----
+node_modules
+dist
+*.tsbuildinfo
+
+# ---- 环境变量：只提交 .env.example，真实配置绝不入库 ----
+.env
+.env.local
+.env.*.local
+
+# ---- 本地邮件桥：凭据与令牌绝不入库 ----
+mail-bridge/node_modules
+mail-bridge/bridge.config.json
+mail-bridge/bridge.token
+mail-bridge/npm-debug.log
+bridge.log
+preview.log
+
+# 桥配置的所有变体（示例除外）—— 备份/停用/改名过的配置一样含真实 authCode。
+# 原先只写了 bridge.config.json，导致 bridge.config.unused-20260924.json.bak
+# 没被忽略：那个 .bak 里存着实名邮箱的 IMAP/SMTP 授权码，一旦推上去就是泄密。
+# 所以这里用通配覆盖 bridge.config.* ，再把要公开的示例文件单独放行。
+mail-bridge/bridge.config.*
+!mail-bridge/bridge.config.example.json
+
+# ---- 编辑器与系统垃圾 ----
+.DS_Store
+*.log
+.env*
+
+# ---- 本地临时与生成物（开源整理时补充 2026-10-17）----
+.tmp-skinlab-gen.cjs
+vite.config.ts.timestamp-*.mjs
+*.bak
+.qa-shots/
+.tmp-*

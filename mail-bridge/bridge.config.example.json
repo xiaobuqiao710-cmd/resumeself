@@ -1,0 +1,35 @@
+{
+  "_说明": "复制本文件为 bridge.config.json 后填写。这个文件里有你的邮箱授权码，不要提交到 git、不要发给别人。",
+
+  "email": "you@example.com",
+  "name": "你的名字",
+
+  "authCode": "在这里填邮箱服务商生成的 IMAP/SMTP 授权码（不是登录密码）",
+
+  "imap": {
+    "host": "imap.example.com",
+    "port": 993,
+    "secure": true
+  },
+
+  "smtp": {
+    "host": "smtp.example.com",
+    "port": 465,
+    "secure": true
+  },
+
+  "sentFolder": "",
+  "_sentFolder说明": "留空则自动识别「已发送」文件夹。识别不准时手动填，例如 \"Sent\" 或 \"已发送\"。",
+
+  "allowOrigins": ["*"],
+  "_allowOrigins说明": "允许哪些网页访问这个桥。默认 * 放行全部（真正的门禁是令牌）；想收紧就改成 [\"https://resumeself.vercel.app\"]。",
+
+  "_常见服务商": {
+    "QQ邮箱":        { "imap": "imap.qq.com",          "smtp": "smtp.qq.com",          "备注": "设置 → 账户 → 开启 IMAP/SMTP 服务，会给你一串授权码" },
+    "网易163":       { "imap": "imap.163.com",         "smtp": "smtp.163.com",         "备注": "设置 → POP3/SMTP/IMAP → 开启 IMAP/SMTP，生成授权码" },
+    "Gmail":         { "imap": "imap.gmail.com",       "smtp": "smtp.gmail.com",       "备注": "需先开启两步验证，再生成「应用专用密码」；国内网络访问可能需代理" },
+    "Outlook/365":   { "imap": "outlook.office365.com","smtp": "smtp.office365.com",   "备注": "smtp 用 587 端口且 secure 填 false（STARTTLS）" },
+    "阿里云邮箱":     { "imap": "imap.aliyun.com",      "smtp": "smtp.aliyun.com",      "备注": "在网页版设置里开启 IMAP/SMTP 并生成客户端密码" },
+    "腾讯企业邮":     { "imap": "imap.exmail.qq.com",   "smtp": "smtp.exmail.qq.com",   "备注": "用邮箱密码或客户端专用密码，视管理员设置而定" }
+  }
+}

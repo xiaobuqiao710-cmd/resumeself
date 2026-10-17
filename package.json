@@ -1,0 +1,40 @@
+{
+  "name": "qiuzhao-cloud",
+  "version": "2.0.0",
+  "description": "秋招网申辅助中心 · 云端版（Supabase 登录与云端存储 + 本机缓存兜底）",
+  "license": "MIT",
+  "private": false,
+  "author": "宋建豪",
+  "homepage": "https://resumeself.vercel.app",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xiaobuqiao710-cmd/resumeself.git"
+  },
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "build:rules": "node scripts/build-rules.mjs",
+    "check:rules": "node scripts/build-rules.mjs --if-stale",
+    "test:search": "esbuild scripts/test-web-search.mjs --bundle --format=esm --platform=node --outfile=node_modules/.tmp/test-web-search.mjs --log-level=error && node node_modules/.tmp/test-web-search.mjs",
+    "test:richtext": "node scripts/qa-richtext.mjs",
+    "test:storage": "node scripts/qa-storage-quota.mjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.4",
+    "docx": "^9.7.1",
+    "mammoth": "^1.12.2",
+    "pdfjs-dist": "^6.3.289",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "esbuild": "^0.21.5",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11"
+  }
+}

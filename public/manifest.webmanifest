@@ -1,0 +1,16 @@
+{
+  "name": "秋招网申辅助中心",
+  "short_name": "秋招中心",
+  "description": "网申资料库 · 岗位与截止追踪 · 投递看板 · 日历提醒 · 面试复盘 · Offer 对比",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0b1020",
+  "theme_color": "#0b1020",
+  "lang": "zh-CN",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}

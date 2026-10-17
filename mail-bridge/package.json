@@ -1,0 +1,19 @@
+{
+  "name": "qiuzhao-mail-bridge",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "秋招网申辅助中心 · 本地邮件桥（IMAP + SMTP，跑在你自己电脑上）",
+  "scripts": {
+    "start": "node server.mjs",
+    "demo": "QZ_DEMO=1 node server.mjs"
+  },
+  "dependencies": {
+    "imapflow": "^1.0.164",
+    "mailparser": "^3.7.1",
+    "nodemailer": "^6.9.15"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

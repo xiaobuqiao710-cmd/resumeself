@@ -1,0 +1,343 @@
+/* =========================================================================
+   秋招网申辅助中心 · Apple Liquid Glass Design System
+   global.css — design tokens, reset, aurora background, glass primitives
+   ========================================================================= */
+
+/* ---------- Design tokens ---------- */
+:root {
+  /* Accent spectrum (cyan → violet → pink), Apple-ish vibrancy */
+  --accent-1: #6ee7ff;
+  --accent-2: #a78bfa;
+  --accent-3: #f472b6;
+  --accent-grad: linear-gradient(135deg, #6ee7ff 0%, #a78bfa 48%, #f472b6 100%);
+  --accent-grad-soft: linear-gradient(135deg, rgba(110,231,255,.18), rgba(167,139,250,.18) 48%, rgba(244,114,182,.18));
+  /* 强调色的低透明度版本：焦点环、日历「今天」、选中态边框共用。
+     单列成变量是因为这几处原先各自硬编码了紫色 rgba(167,139,250,…) ——
+     换皮肤时它们不跟着走，纸上就会冒出一个紫色焦点环、青绿皮肤上冒出一个紫框。 */
+  --accent-ring: rgba(167, 139, 250, .3);
+  /* 强调色的「发光」版本：实心按钮的常态投影、卡片悬浮时那圈光晕。
+     和 --accent-ring 同一回事、只是更实 —— 硬编码的紫色投影在纸 / 墨 / 青绿上
+     会变成「鼠标一划过就闪一下紫光」，比静态的紫框更扎眼。 */
+  --accent-glow: rgba(167, 139, 250, .85);
+  --accent-glow-soft: rgba(167, 139, 250, .5);
+
+  /* Semantic */
+  --ok: #34d399;
+  --warn: #fbbf24;
+  --danger: #fb7185;
+  --info: #60a5fa;
+
+  /* Glass surface — DARK (default) */
+  --bg-0: #070b18;
+  --bg-1: #0b1020;
+  --bg-2: #121a35;
+  --glass-bg: rgba(255, 255, 255, 0.055);
+  --glass-bg-strong: rgba(255, 255, 255, 0.09);
+  --glass-brd: rgba(255, 255, 255, 0.12);
+  --glass-brd-strong: rgba(255, 255, 255, 0.2);
+  --glass-hi: rgba(255, 255, 255, 0.35);   /* specular top highlight */
+  --glass-shadow: 0 18px 50px -12px rgba(0, 0, 0, 0.65), 0 4px 16px -6px rgba(0,0,0,.4);
+  --glass-inset: inset 0 1px 0 0 var(--glass-hi), inset 0 -1px 0 0 rgba(255,255,255,.04);
+
+  /* Text */
+  --tx-1: rgba(255, 255, 255, 0.96);
+  --tx-2: rgba(255, 255, 255, 0.72);
+  --tx-3: rgba(255, 255, 255, 0.48);
+  --tx-4: rgba(255, 255, 255, 0.3);
+
+  /* Radii */
+  --r-xs: 8px;
+  --r-sm: 12px;
+  --r-md: 16px;
+  --r-lg: 22px;
+  --r-xl: 28px;
+  --r-pill: 999px;
+
+  /* Blur */
+  --blur-glass: saturate(180%) blur(28px);
+  --blur-strong: saturate(200%) blur(44px);
+
+  /* Motion — Apple spring-ish curves */
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-io: cubic-bezier(0.65, 0, 0.35, 1);
+  --t-fast: 160ms;
+  --t-med: 300ms;
+  --t-slow: 520ms;
+
+  /* Layout */
+  --sidebar-w: 250px;
+  --topbar-h: 66px;
+  --topbar-bg: rgba(8, 12, 24, 0.88);
+
+  /* Font */
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
+    "Helvetica Neue", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --font-mono: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+}
+
+/* ---------- Light theme (liquid glass, daylight) ---------- */
+:root[data-theme="light"] {
+  --bg-0: #eef2fb;
+  --bg-1: #f5f7ff;
+  --bg-2: #e7ecfb;
+  --glass-bg: rgba(255, 255, 255, 0.6);
+  --glass-bg-strong: rgba(255, 255, 255, 0.78);
+  --glass-brd: rgba(255, 255, 255, 0.85);
+  --glass-brd-strong: rgba(120, 130, 160, 0.28);
+  --glass-hi: rgba(255, 255, 255, 0.95);
+  --glass-shadow: 0 18px 44px -16px rgba(60, 72, 120, 0.35), 0 4px 14px -8px rgba(60,72,120,.25);
+  --glass-inset: inset 0 1px 0 0 var(--glass-hi), inset 0 -1px 0 0 rgba(255,255,255,.4);
+  --tx-1: rgba(18, 24, 48, 0.96);
+  --tx-2: rgba(30, 40, 72, 0.74);
+  /* 浅色主题的次级文字必须比深色主题更"实"。同一个 0.5 alpha 在近白底上只剩 2.8:1
+     （12.5px 正文远低于 WCAG AA 的 4.5:1，统计卡标签、卡片小标题这类字读起来发灰看不清），
+     而深色底上 0.48 就有 4.8:1 —— 这不是对称的，别照着深色主题抄 alpha。 */
+  --tx-3: rgba(40, 50, 84, 0.72);
+  --tx-4: rgba(40, 50, 84, 0.32);
+  --topbar-bg: rgba(246, 248, 255, 0.88);
+}
+
+/* ---------- Reset ---------- */
+*, *::before, *::after { box-sizing: border-box; }
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  font-family: var(--font);
+  color: var(--tx-1);
+  background: var(--bg-1);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  overflow: hidden;
+  letter-spacing: -0.01em;
+}
+button, input, textarea, select { font: inherit; color: inherit; }
+button { cursor: pointer; background: none; border: none; }
+a { color: inherit; text-decoration: none; }
+::selection { background: rgba(167,139,250,.35); color: #fff; }
+
+/* ---------- Aurora / liquid background ---------- */
+.aurora {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  background:
+    radial-gradient(120% 120% at 50% 0%, var(--bg-2) 0%, var(--bg-1) 42%, var(--bg-0) 100%);
+}
+.aurora__blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(90px);
+  opacity: .55;
+  mix-blend-mode: screen;
+  will-change: transform;
+}
+:root[data-theme="light"] .aurora__blob { mix-blend-mode: multiply; opacity: .38; filter: blur(100px); }
+.aurora__blob--1 { width: 46vw; height: 46vw; left: -8vw; top: -10vw;
+  background: radial-gradient(circle at 30% 30%, #22d3ee, #0ea5e9 60%, transparent 72%);
+  animation: drift1 26s var(--ease-io) infinite; }
+.aurora__blob--2 { width: 42vw; height: 42vw; right: -6vw; top: 4vh;
+  background: radial-gradient(circle at 60% 40%, #a78bfa, #7c3aed 58%, transparent 72%);
+  animation: drift2 32s var(--ease-io) infinite; }
+.aurora__blob--3 { width: 40vw; height: 40vw; left: 24vw; bottom: -14vh;
+  background: radial-gradient(circle at 50% 50%, #f472b6, #db2777 55%, transparent 72%);
+  animation: drift3 38s var(--ease-io) infinite; }
+.aurora__blob--4 { width: 30vw; height: 30vw; right: 18vw; bottom: -6vh;
+  background: radial-gradient(circle at 50% 50%, #34d399, #059669 55%, transparent 72%);
+  animation: drift1 30s var(--ease-io) infinite reverse; }
+.aurora__grain {
+  position: absolute; inset: 0; opacity: .035; pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+@keyframes drift1 { 0%,100%{transform:translate3d(0,0,0) scale(1)} 33%{transform:translate3d(6vw,4vh,0) scale(1.12)} 66%{transform:translate3d(-3vw,7vh,0) scale(.94)} }
+@keyframes drift2 { 0%,100%{transform:translate3d(0,0,0) scale(1)} 50%{transform:translate3d(-7vw,8vh,0) scale(1.16)} }
+@keyframes drift3 { 0%,100%{transform:translate3d(0,0,0) scale(1)} 40%{transform:translate3d(5vw,-5vh,0) scale(1.1)} 75%{transform:translate3d(-6vw,-2vh,0) scale(.9)} }
+
+@media (prefers-reduced-motion: reduce) {
+  .aurora__blob { animation: none !important; }
+  * { scroll-behavior: auto !important; }
+}
+
+/* ---------- Glass primitives ---------- */
+.glass {
+  position: relative;
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--blur-glass);
+  backdrop-filter: var(--blur-glass);
+  border: 1px solid var(--glass-brd);
+  box-shadow: var(--glass-shadow), var(--glass-inset);
+  border-radius: var(--r-lg);
+}
+.glass::after {
+  /* liquid refraction sheen along the top edge */
+  content: "";
+  position: absolute; inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(160deg, rgba(255,255,255,.12) 0%, rgba(255,255,255,0) 26%, rgba(255,255,255,0) 74%, rgba(255,255,255,.05) 100%);
+  opacity: .8;
+}
+.glass--strong { background: var(--glass-bg-strong); border-color: var(--glass-brd-strong); }
+
+/* ---------- App shell ---------- */
+.app {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: var(--sidebar-w) 1fr;
+  height: 100vh;
+  height: 100dvh;
+}
+.app__main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  height: 100vh;
+  height: 100dvh;
+}
+.app__scroll {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 26px 30px 60px;
+  scroll-behavior: smooth;
+}
+
+/* ---------- Scrollbar ---------- */
+::-webkit-scrollbar { width: 11px; height: 11px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,.14);
+  border-radius: var(--r-pill);
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.26); background-clip: content-box; }
+:root[data-theme="light"] ::-webkit-scrollbar-thumb { background: rgba(80,90,130,.24); background-clip: content-box; }
+
+/* ---------- Typography helpers ---------- */
+.h-display { font-size: 30px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.15; }
+.h-title   { font-size: 21px; font-weight: 680; letter-spacing: -0.02em; }
+.h-sub     { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+.tx-2 { color: var(--tx-2); }
+.tx-3 { color: var(--tx-3); }
+.tx-4 { color: var(--tx-4); }
+.mono { font-family: var(--font-mono); }
+.grad-text {
+  background: var(--accent-grad);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent;
+}
+.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+/* ---------- Layout utilities ---------- */
+.row { display: flex; align-items: center; }
+.row-between { display: flex; align-items: center; justify-content: space-between; }
+.col { display: flex; flex-direction: column; }
+.gap-4 { gap: 4px; } .gap-5 { gap: 5px; } .gap-6 { gap: 6px; } .gap-8 { gap: 8px; }
+.gap-10 { gap: 10px; } .gap-12 { gap: 12px; } .gap-14 { gap: 14px; } .gap-16 { gap: 16px; } .gap-20 { gap: 20px; }
+.wrap { flex-wrap: wrap; }
+.grow { flex: 1; min-width: 0; }
+.grid { display: grid; gap: 16px; }
+/* 网格子项的 min-width 默认是 auto（= 自己的 min-content 宽度）。
+   卡片墙（`repeat(auto-fill,minmax(Npx,1fr))`）里只要某个子项内部有一行「不可断」的
+   长内容，它的 min-content 就会顶穿轨道、把卡片本身撑得比容器还宽，内容随即溢到
+   隔壁那张卡上 —— 两列文字叠在一起。允许子项被压缩，配合内层元素自己的折行规则，
+   是这类跨卡溢出的根治位（公司背景卡 hq 胶囊事故）。 */
+.grid > * { min-width: 0; }
+
+/* ---------- Entrance animations ---------- */
+@keyframes riseIn {
+  from { opacity: 0; transform: translateY(14px) scale(.985); }
+  to   { opacity: 1; transform: none; }
+}
+.rise { animation: riseIn var(--t-slow) var(--ease) both; }
+@keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
+.fade { animation: fadeIn var(--t-med) var(--ease) both; }
+@keyframes popIn {
+  0% { opacity: 0; transform: scale(.9) translateY(10px); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+.pop { animation: popIn 380ms var(--ease) both; }
+
+.stagger > * { animation: riseIn var(--t-slow) var(--ease) both; }
+.stagger > *:nth-child(1){animation-delay:.02s} .stagger > *:nth-child(2){animation-delay:.06s}
+.stagger > *:nth-child(3){animation-delay:.10s} .stagger > *:nth-child(4){animation-delay:.14s}
+.stagger > *:nth-child(5){animation-delay:.18s} .stagger > *:nth-child(6){animation-delay:.22s}
+.stagger > *:nth-child(7){animation-delay:.26s} .stagger > *:nth-child(8){animation-delay:.30s}
+.stagger > *:nth-child(9){animation-delay:.34s} .stagger > *:nth-child(10){animation-delay:.38s}
+
+/* shimmer for loading */
+@keyframes shimmer { 100% { transform: translateX(100%); } }
+.shimmer { position: relative; overflow: hidden; }
+.shimmer::after {
+  content:""; position:absolute; inset:0; transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.12), transparent);
+  animation: shimmer 1.6s infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.spin { animation: spin 900ms linear infinite; }
+@keyframes pulseDot { 0%,100%{opacity:1; transform:scale(1)} 50%{opacity:.4; transform:scale(.82)} }
+.pulse { animation: pulseDot 1.8s var(--ease-io) infinite; }
+
+/* ---------- AI 助手右侧常驻列 ---------- */
+:root { --agent-w: 384px; }
+
+/* 打开助手时，主区让出右列（仍保留最小宽度，避免内容被挤变形） */
+.app--agent { grid-template-columns: var(--sidebar-w) minmax(420px, 1fr) var(--agent-w); }
+
+.agent-col {
+  position: relative;              /* 拖拽条以它为定位基准 */
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  height: 100vh;
+  height: 100dvh;
+  border-left: 1px solid var(--glass-brd);
+  background: var(--glass-bg-strong);
+  backdrop-filter: blur(var(--blur-glass));
+  -webkit-backdrop-filter: blur(var(--blur-glass));
+}
+
+/* 拖拽改宽：8px 手势带压在边界上，hover/拖动时给一条高亮细线，
+   让「这里可以拖」这件事自己说出来（否则用户根本不知道右栏能调）。 */
+.agent-resizer {
+  position: absolute;
+  left: -4px; top: 0; bottom: 0;
+  width: 9px;
+  z-index: 5;
+  cursor: col-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: none;
+}
+.agent-resizer__grip {
+  width: 3px; height: 42px; border-radius: 3px;
+  background: transparent;
+  transition: background var(--t-fast) var(--ease);
+}
+.agent-resizer:hover .agent-resizer__grip,
+.agent-resizer:active .agent-resizer__grip { background: var(--accent-1); }
+
+/* 浮窗的右下角拖拽柄（改宽 + 改高） */
+.agent-resizer--corner {
+  left: auto; top: auto;
+  right: 0; bottom: 0;
+  width: 16px; height: 16px;
+  cursor: nwse-resize;
+  align-items: flex-end;
+  justify-content: flex-end;
+  background: linear-gradient(315deg, transparent 46%, var(--glass-brd-strong) 48%,
+    var(--glass-brd-strong) 56%, transparent 58%, transparent 68%,
+    var(--glass-brd-strong) 70%, var(--glass-brd-strong) 78%, transparent 80%);
+}
+.agent-resizer--corner .agent-resizer__grip { display: none; }
+
+/* 窄屏放不下三列时，助手退回右下角浮窗（由 JS 切换 mode，不靠 CSS 隐藏） */
+@media (max-width: 1180px) {
+  .app--agent { grid-template-columns: var(--sidebar-w) minmax(0, 1fr); }
+  .agent-col { display: none; }
+}
