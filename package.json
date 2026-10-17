@@ -4,7 +4,7 @@
   "description": "秋招网申辅助中心 · 云端版（Supabase 登录与云端存储 + 本机缓存兜底）",
   "license": "MIT",
   "private": false,
-  "author": "宋建豪",
+  "author": "xiaobuqiao710-cmd",
   "homepage": "https://resumeself.vercel.app",
   "repository": {
     "type": "git",
