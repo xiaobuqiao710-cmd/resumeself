@@ -29,7 +29,7 @@ export const NAV_GROUPS: NavGroupDef[] = [
   {
     id: 'schedule', label: '日程', icon: 'calendar', section: '求职推进',
     tabs: [
-      { id: 'calendar', label: '日历与截止', icon: 'calendar', desc: '截止 / 笔试面试 / 待办 · 撞车检测' },
+      { id: 'calendar', label: '笔试面试日程', icon: 'calendar', desc: '只放笔试 / 面试 / Offer 的约定时间 · 撞车检测' },
     ],
   },
   {

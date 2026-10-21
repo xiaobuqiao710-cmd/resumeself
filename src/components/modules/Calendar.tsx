@@ -15,6 +15,18 @@ const TYPE_META: Record<EventType, { label: string; cls: string }> = {
   other: { label: '事项', cls: 'ev-other' },
 };
 
+/**
+ * 日历只装「有约定时间的日程」：笔试 / 面试 / Offer。
+ *
+ * 为什么把截止与待办挡在外面（2026-10-21 用户反馈「日历里全是截止·XXX」）：
+ * 网申截止是**漏斗状态**，一个月能有三四十条，一画进格子就把真正要赴的约
+ * （哪天几点在哪一面）挤成 `+38 更多`；待办是另一套清单，它有自己的卡。
+ * 数据一条都不删，只是不画在日历上：截止仍在右侧「投递截止提醒」按投递记录汇总，
+ * 待办仍在「待办清单」里勾选。日历回答的问题只有一个 —— 我哪天要去笔试 / 面试。
+ */
+const CAL_TYPES: EventType[] = ['test', 'interview', 'offer'];
+const isCalEvent = (e: CalEvent) => CAL_TYPES.includes(e.type);
+
 function monthMatrix(year: number, month: number) {
   const first = new Date(year, month, 1);
   const startDow = (first.getDay() + 6) % 7; // Monday-first
@@ -24,7 +36,7 @@ function monthMatrix(year: number, month: number) {
   return cells;
 }
 
-const emptyEvent = (date: string): Partial<CalEvent> => ({ title: '', date, time: '', type: 'other', note: '', source: 'manual' });
+const emptyEvent = (date: string): Partial<CalEvent> => ({ title: '', date, time: '', type: 'interview', note: '', source: 'manual' });
 
 export default function Calendar() {
   const { events, applications, addEvent, updateEvent, removeEvent, toast } = useStore();
@@ -35,16 +47,18 @@ export default function Calendar() {
   const [creating, setCreating] = useState<Partial<CalEvent> | null>(null);
 
   const cells = useMemo(() => monthMatrix(cursor.y, cursor.m), [cursor]);
+  /* 只把笔/面/Offer 装进日历（见 isCalEvent）。byDate 是全站唯一给格子与选中日供数的地方，
+     在这里过滤一次，月视图、选中日详情、+N 计数就都不会漏进截止与待办。 */
   const byDate = useMemo(() => {
     const map: Record<string, CalEvent[]> = {};
-    events.forEach((e) => { (map[e.date] ||= []).push(e); });
+    events.filter(isCalEvent).forEach((e) => { (map[e.date] ||= []).push(e); });
     Object.values(map).forEach((arr) => arr.sort((a, b) => (a.time || '99').localeCompare(b.time || '99')));
     return map;
   }, [events]);
 
   const upcoming = useMemo(() => {
     const t = todayISO();
-    return [...events].filter((e) => e.date >= t)
+    return [...events].filter((e) => e.date >= t && isCalEvent(e))
       .sort((a, b) => a.date.localeCompare(b.date) || (a.time || '').localeCompare(b.time || ''))
       .slice(0, 12);
   }, [events]);
@@ -105,7 +119,7 @@ export default function Calendar() {
       <div className="section-head">
         <div>
           <div className="section-head__t">日历追踪</div>
-          <div className="section-head__d">登记填报截止、笔试面试与回馈情况 · 与网申记录、邮件同步联动</div>
+          <div className="section-head__d">只放笔试 / 面试 / Offer 的约定时间 · 网申截止与待办在右侧清单里看，不占日历格子</div>
         </div>
         <div className="row gap-8">
           <Button size="sm" variant="ghost" icon="chevronR" style={{ transform: 'rotate(180deg)' }} onClick={() => shift(-1)} aria-label="上月" />
@@ -144,9 +158,11 @@ export default function Calendar() {
             })}
           </div>
           <div className="row gap-12 wrap" style={{ marginTop: 14 }}>
-            {Object.entries(TYPE_META).map(([k, v]) => (
+            {/* 图例只列「日历里真的会出现」的三类：以前把截止/待办/事项也列出来，
+                图例本身就在暗示这些东西会画进格子，等于替旧口径站台。 */}
+            {CAL_TYPES.map((k) => (
               <span key={k} className="row gap-6" style={{ fontSize: 11.5, color: 'var(--tx-3)' }}>
-                <span className={cn('cal__ev', v.cls)} style={{ padding: '1px 8px' }}>{v.label}</span>
+                <span className={cn('cal__ev', TYPE_META[k].cls)} style={{ padding: '1px 8px' }}>{TYPE_META[k].label}</span>
               </span>
             ))}
             <span className="tx-4" style={{ fontSize: 11, marginLeft: 'auto' }}>双击日期可快速新增事件</span>
@@ -300,7 +316,9 @@ function EventModal({ data, onClose, onSave, onDelete }:
           <input className="input" type="time" value={form.time || ''} onChange={(e) => set('time', e.target.value)} /></div>
         <div className="field" style={{ gridColumn: '1 / -1' }}><label className="field__label">类型</label>
           <div className="row gap-6 wrap">
-            {(Object.keys(TYPE_META) as EventType[]).map((t) => (
+            {/* 只给三类：日历里画不出来的类型不该出现在这个表单里，
+                否则用户新建一条「截止」，保存后在哪都找不到，会以为丢数据了。 */}
+            {CAL_TYPES.map((t) => (
               <button key={t} className={cn('badge', form.type === t ? 'badge--accent' : 'badge--muted')}
                 style={{ cursor: 'pointer', padding: '5px 12px' }} onClick={() => set('type', t)}>
                 {TYPE_META[t].label}

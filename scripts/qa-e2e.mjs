@@ -4203,6 +4203,100 @@ async function scenarioOnboard(page) {
    - 第二级 .approw 条数 === 该状态条数，标题含「· 投递库」
    - 行内原生 select 改状态不弹窗；一进一出后类别页计数随之变化
    - 0 条时无论什么状态都短路到 .empty，绝不渲染 .catc */
+/**
+ * 日历「只画笔面试」巡检。
+ *
+ * 用户 2026-10-21 的原话：「我的日历和待办应该只呈现笔面试的」。
+ * 旧口径把网申截止（deadline）也画进月视图格子 —— 一个月几十条「截止·XXX」，
+ * 把真正要赴的约挤成「+38 更多」，日历就废了。这条断言钉住新口径：
+ *   · 月历格子里 .ev-deadline / .ev-todo 必须为 0；
+ *   · 「近期安排」列表里同样为 0；
+ *   · 「投递截止提醒」卡仍在（截止不删数据，只是不进日历）。
+ *
+ *   QZ_NO_SANDBOX=1 QZ_CLOUD=1 QZ_BASE=http://127.0.0.1:4173/ node scripts/qa-e2e.mjs calv
+ */
+async function scenarioCalv(page) {
+  const ok = (m) => console.log('✅ ' + m);
+  const bad = (m) => console.log('❌ ' + m);
+
+  await page.goto();
+  await injectHelpers(page);
+  /* 播种：1 条截止事件 + 1 条待办 + 笔试/面试各一，另有一条带 deadline 的投递记录 */
+  await page.eval(`
+    const s = window.__q.state();
+    const ev = [
+      { id: 'qa-ev-dl', title: '中金网申截止', date: '2026-10-24', type: 'deadline', source: 'manual' },
+      { id: 'qa-ev-todo', title: '整理网申材料', date: '2026-10-22', type: 'todo', source: 'manual' },
+      { id: 'qa-ev-test', title: '中国银行笔试', date: '2026-10-24', time: '09:00', type: 'test', source: 'manual' },
+      { id: 'qa-ev-int', title: '博时基金一面', date: '2026-10-26', time: '14:00', type: 'interview', source: 'manual' },
+    ];
+    const app = {
+      id: 'qa-app-dl', company: '中金公司', position: '法务', status: 'filling',
+      deadline: '2026-10-30', createdAt: '2026-10-01', updatedAt: '2026-10-01', timeline: [],
+    };
+    localStorage.setItem(window.__q.cacheKey(), JSON.stringify({ ...s, events: ev, applications: [app], skin: 'paper', theme: 'light' }));
+    /* 皮肤首屏就要用，整站 state 之外另存一份提示（否则会先闪一下默认的极光夜） */
+    localStorage.setItem('qz.skin', 'paper');
+    return 1;
+  `);
+  /* 播种后必须 reload：否则 store 的持久化 effect 会把内存里的旧状态写回同一个键 */
+  await page.goto();
+  await injectHelpers(page);
+  if (!await page.waitFor(`(() => { const s = window.__q.state(); return (s.events || []).length === 4; })()`, 8000)) {
+    bad('播种没生效（store 未水合），后续跳过');
+    return;
+  }
+
+  await page.eval(`return window.__q.click('.nav__item', '日程');`);
+  if (!await page.waitFor(`!!document.querySelector('.cal')`, 8000)) { bad('日历没渲染'); return; }
+  /* 等格子里的 chip 真画出来再读：切页 + 水合 + 一次重渲染之间读会读到 0 条，
+     那条「一条事件都没画」的告警就会变成假红（实测踩过一次）。 */
+  await page.waitFor(`document.querySelectorAll('.cal__cell .cal__ev').length > 0`, 6000);
+  await sleep(400);
+
+  const r = await page.eval(`
+    const cells = [...document.querySelectorAll('.cal__cell')];
+    const chips = cells.flatMap((c) => [...c.querySelectorAll('.cal__ev')]);
+    const byTitle = (t) => [...document.querySelectorAll('.card')].find((c) => (c.innerText || '').includes(t)) || null;
+    const up = byTitle('近期安排');
+    const upChips = up ? [...up.querySelectorAll('.cal__ev')] : [];
+    const dlCount = (arr) => arr.filter((e) => e.classList.contains('ev-deadline')).length;
+    const todoCount = (arr) => arr.filter((e) => e.classList.contains('ev-todo')).length;
+    return {
+      cells: cells.length,
+      chips: chips.length,
+      cellDeadline: dlCount(chips),
+      cellTodo: todoCount(chips),
+      upChips: upChips.length,
+      upDeadline: dlCount(upChips),
+      upTodo: todoCount(upChips),
+      hasUpCard: !!up,
+      hasDeadlineCard: !!byTitle('投递截止提醒'),
+      hasTodoCard: !!byTitle('待办清单'),
+    };
+  `);
+  console.log('日历口径:', JSON.stringify(r));
+
+  if (r.chips === 0) bad('月视图一条事件都没画（播种的笔面没渲染，断言无意义）');
+  else ok(`月视图画了 ${r.chips} 条事件`);
+  if (r.cellDeadline === 0) ok('月视图无「截止」');
+  else bad(`月视图里还有 ${r.cellDeadline} 条截止事件`);
+  if (r.cellTodo === 0) ok('月视图无「待办」');
+  else bad(`月视图里还有 ${r.cellTodo} 条待办事件`);
+  if (r.upDeadline === 0) ok('近期安排无「截止」');
+  else bad(`近期安排里还有 ${r.upDeadline} 条截止`);
+  if (r.upTodo === 0) ok('近期安排无「待办」');
+  else bad(`近期安排里还有 ${r.upTodo} 条待办`);
+  if (r.hasDeadlineCard) ok('「投递截止提醒」卡仍在（截止不进日历但仍可看）');
+  else console.log('· 没有「投递截止提醒」卡（可能播种的投递记录没被识别）');
+
+  await page.shot('calv-1440');
+  const send = (m, p) => page.cdp.send(m, p, page.sid);
+  await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
+  await sleep(600);
+  await page.shot('calv-390');
+}
+
 async function scenarioAppCat(page) {
   const fail = (m) => console.log('❌ ' + m);
   const ok = (m) => console.log('✅ ' + m);
@@ -4629,6 +4723,7 @@ try {
   if (scenario === 'stacklock') { await scenarioStackLock(page); }
   if (scenario === 'perf') { await scenarioPerf(page); }
   if (scenario === 'appcat') { page.reset(); await scenarioAppCat(page); }
+  if (scenario === 'calv') { page.reset(); await scenarioCalv(page); }
   if (scenario === 'mailsend') { page.reset(); await scenarioMailSend(page); }
   result = { errors: page.errors };
 } catch (e) {
