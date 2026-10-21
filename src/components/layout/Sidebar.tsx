@@ -15,8 +15,7 @@ export function Sidebar({ bridgeOnline, unread, open, onNavigate, onOpenGroup, u
     onNavigate?: () => void; onOpenGroup: (g: NavGroupDef) => void;
     /** 云端版：当前账号与退出入口；不传则按本机模式渲染 */
     userEmail?: string; onLogout?: () => void }) {
-  /* allEvents：笔试/面试日程 v7 起由投递进度线派生，只数 events 会漏 */
-  const { view, applications, allEvents: events, jobs, questions, profile,
+  const { view, applications, events, jobs, questions, profile,
     interviews, offers, materials, contacts, cloud } = useStore();
 
   const today = todayISO();

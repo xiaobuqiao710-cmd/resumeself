@@ -6,7 +6,6 @@ import { Button, Badge, Modal, Empty, Segmented } from '../ui/Kit';
 import { cn, uid, todayISO, deadlineLabel, fmtDate, STATUS_META, STATUS_ORDER, initials, daysUntil } from '../../lib/util';
 import { pingBridge, fetchList } from '../../lib/mail';
 import { getAiConfig, hasAiKey, aiSyncStatus, keywordFallback } from '../../lib/ai';
-import { stageId, isScheduledStage, nextStageOf } from '../../lib/appTimeline';
 import type { AiAppUpdate } from '../../lib/ai';
 
 const emptyForm = (): Partial<Application> => ({
@@ -16,15 +15,6 @@ const emptyForm = (): Partial<Application> => ({
 /* 排序模型：第二级类别页内按截止日期 / 公司名排序 */
 type SortKey = 'company' | 'position' | 'status' | 'deadline' | 'location' | 'channel';
 type SortDir = 'asc' | 'desc';
-
-/** 进度线节点日期的人话标签：今天 / 明天 / 还有 N 天 / 已过 N 天（裸日期读不出紧迫感） */
-function relDay(d: number | null): string {
-  if (d === null) return '未填日期';
-  if (d === 0) return '今天';
-  if (d === 1) return '明天';
-  if (d > 1) return `还有 ${d} 天`;
-  return `已过 ${-d} 天`;
-}
 
 
 function AppForm({ data, onChange }: { data: Partial<Application>; onChange: (p: Partial<Application>) => void }) {
@@ -335,17 +325,13 @@ export default function Applications() {
       {/* detail / edit modal */}
       {editing && (
         <DetailModal app={editing} onClose={() => setEditing(null)}
-          onSave={(p) => {
-            /* 进度线是独立写入的（store.addStage/updateStage），而 form 是打开弹窗时的整份快照，
-               里面带着旧的 timeline。若原样交给 updateApp，会把刚改好的笔试面试节点覆盖回旧值。
-               这里显式摘掉 timeline，让它只由进度线自己管。 */
-            const { timeline, ...rest } = p;
-            updateApp(editing.id, rest);
-            setEditing(null);
-            toast('已保存修改');
-          }}
+          onSave={(p) => { updateApp(editing.id, p); setEditing(null); toast('已保存修改'); }}
           onStatus={(s, note) => { setStatus(editing.id, s, note); setEditing({ ...editing, status: s }); toast(`状态更新为「${STATUS_META[s].label}」`); }}
-          onDelete={() => { removeApp(editing.id); setEditing(null); toast('已删除投递记录', 'info'); }} />
+          onDelete={() => { removeApp(editing.id); setEditing(null); toast('已删除投递记录', 'info'); }}
+          onAddEvent={(type) => {
+            addEvent({ title: `${editing.company} · ${type === 'interview' ? '面试' : type === 'test' ? '笔试' : '事项'}`, date: todayISO(), type, appId: editing.id, source: 'application' });
+            toast('已添加到日历');
+          }} />
       )}
     </div>
   );
@@ -356,10 +342,6 @@ function AppRow({ app, onOpen, onStatus }: { app: Application; onOpen: () => voi
   const dl = deadlineLabel(app.deadline);
   const d = daysUntil(app.deadline);
   const soon = d !== null && d <= 3 && d >= 0;
-  /* 下一次要赴的约（笔试/面试/Offer）：列表上直接能看到「11/02 14:00 面试」，
-     不用点开详情翻进度线 —— 这正是原先日历与投递记录脱节时最缺的那一眼。 */
-  const nx = nextStageOf(app, todayISO());
-  const upcoming = nx && nx.entry.at >= todayISO() ? nx : null;
   return (
     <div className="approw" role="button" tabIndex={0} onClick={onOpen}
       onKeyDown={(e) => { if (e.key === 'Enter') onOpen(); }}>
@@ -371,11 +353,6 @@ function AppRow({ app, onOpen, onStatus }: { app: Application; onOpen: () => voi
           {[app.channel, app.location, app.deadline ? `截止 ${fmtDate(app.deadline)}` : ''].filter(Boolean).join(' · ') || '未填写渠道 / 地点'}
         </span>
       </span>
-      {upcoming && (
-        <Badge tone="badge--info">
-          {`${fmtDate(upcoming.entry.at)}${upcoming.entry.time ? ' ' + upcoming.entry.time : ''} ${STATUS_META[upcoming.entry.status]?.label || ''}`}
-        </Badge>
-      )}
       {app.deadline && <Badge tone={soon ? 'badge--warn' : dl.cls}>{dl.text}</Badge>}
       <select className={cn('select approw__status', STATUS_META[app.status].cls)} value={app.status} title="更改投递状态"
         onClick={(e) => e.stopPropagation()}
@@ -397,43 +374,18 @@ const sortValue = (a: Application, k: SortKey): string | number => {
   return String((a[k] as string | undefined) ?? '');
 };
 
-function DetailModal({ app, onClose, onSave, onStatus, onDelete }:
+function DetailModal({ app, onClose, onSave, onStatus, onDelete, onAddEvent }:
   { app: Application; onClose: () => void; onSave: (p: Partial<Application>) => void;
-    onStatus: (s: AppStatus, note?: string) => void; onDelete: () => void }) {
-  const { applications, addStage, updateStage, removeStage, toast } = useStore();
-  /* 进度线要「改完立刻看得见」：直接用 store 里的最新记录，
-     否则用的是打开弹窗时那份快照，改完日期界面不动，像没生效。 */
-  const live = useMemo(() => applications.find((a) => a.id === app.id) || app, [applications, app]);
-  const line = Array.isArray(live.timeline) ? live.timeline : [];
+    onStatus: (s: AppStatus, note?: string) => void; onDelete: () => void;
+    onAddEvent: (t: 'interview' | 'test' | 'deadline' | 'other') => void }) {
   const [form, setForm] = useState<Partial<Application>>(app);
-  const [tab, setTab] = useState<'detail' | 'line'>('detail');
-  /* 空时间不再渲染 type=time 的 `--:--`（那个占位符永远让人以为控件坏了）：
-     先给一颗「未定」虚线胶囊，点了才长出真正的时间框。key 是节点 id。 */
-  const [openTime, setOpenTime] = useState<Record<string, boolean>>({});
-
+  const [tab, setTab] = useState<'detail' | 'timeline'>('detail');
   /* 「详情」表单里的「当前状态」下拉也必须走 onStatus（=store.setStatus），
      否则只改投递记录、岗位库与截止提醒不会跟着变（曾出现：提醒停了、岗位卡还写着新岗位） */
   const patchForm = (p: Partial<Application>) => {
     if (p.status && p.status !== app.status) onStatus(p.status as AppStatus);
     setForm(p);
   };
-
-  const addNode = (status: AppStatus) => {
-    addStage(live.id, { status, at: todayISO(), done: false });
-    toast(`已加一个「${STATUS_META[status]?.label || status}」节点，改日期时间会同步到日历`);
-  };
-
-  /* 「下一次要赴的约」：未完成、日期 ≥ 今天、取最早的一条。
-     给它加一圈高亮 + 顶部一句话，打开进度线第一眼就知道最近一场是什么，
-     不用在几行一模一样的卡片里自己比对日期。 */
-  const nextNode = useMemo(() => {
-    const cands = line
-      .filter((t) => isScheduledStage(t.status) && !t.done && t.at && t.at >= todayISO())
-      .sort((a, b) => a.at.localeCompare(b.at));
-    return cands[0] || null;
-  }, [line]);
-  const nextNodeId = nextNode ? stageId(nextNode, line.indexOf(nextNode)) : null;
-
   return (
     <Modal open onClose={onClose} wide icon="building"
       title={<span>{app.company} · <span className="tx-3" style={{ fontWeight: 500 }}>{app.position}</span></span>}
@@ -445,153 +397,36 @@ function DetailModal({ app, onClose, onSave, onStatus, onDelete }:
       </>}>
       <div className="row-between" style={{ marginBottom: 16 }}>
         <StatusPills value={(form.status as AppStatus) || app.status} onPick={(s) => { setForm({ ...form, status: s }); onStatus(s); }} />
-        <Segmented size="sm" value={tab} onChange={setTab}
-          options={[{ value: 'detail', label: '详情' }, { value: 'line', label: `进度线 ${line.length ? `(${line.length})` : ''}` }]} />
+        <Segmented size="sm" value={tab} onChange={setTab} options={[{ value: 'detail', label: '详情' }, { value: 'timeline', label: '进度时间线' }]} />
       </div>
 
       {tab === 'detail' ? (
         <>
           <AppForm data={form} onChange={patchForm} />
           <div className="row gap-8 wrap" style={{ marginTop: 16 }}>
-            <span className="tx-3" style={{ fontSize: 12 }}>投递链接：</span>
-            {app.link
-              ? <a href={app.link} target="_blank" rel="noreferrer"><Button size="sm" icon="external">打开投递链接</Button></a>
-              : <span className="tx-4" style={{ fontSize: 12 }}>未填写</span>}
-            <span className="grow" />
-            <Button size="sm" icon="clock" onClick={() => setTab('line')}>去记笔试 / 面试时间</Button>
+            <span className="tx-3" style={{ fontSize: 12 }}>快捷加入日历：</span>
+            <Button size="sm" icon="calendar" onClick={() => onAddEvent('interview')}>面试</Button>
+            <Button size="sm" icon="edit" onClick={() => onAddEvent('test')}>笔试</Button>
+            <Button size="sm" icon="clock" onClick={() => onAddEvent('other')}>其他事项</Button>
+            {app.link && <a href={app.link} target="_blank" rel="noreferrer"><Button size="sm" icon="external">打开投递链接</Button></a>}
           </div>
         </>
       ) : (
-        <>
-          {/*
-           * 进度线是这个岗位的**时间主线**：网申 → 笔试 → 面试 → Offer。
-           * 每个节点带日期与时间，日历上的笔试/面试就是这条线投影出来的（见 lib/appTimeline.ts），
-           * 所以在这里填时间就等于同时排进了日历 —— 不用再去日历里建一条。
-           *
-           * ⚠️ 2026-10-20 视觉重做：原先把「状态下拉 + 日期 + 时间 + 勾选 + 删除」平铺成一行、
-           * 一个标签都不给 —— 下拉框看不出是「阶段」，空的时间框只剩 `--:--` 像坏掉了，
-           * 已提交节点还顶着一个根本用不上的时间框与地点框，于是一屏四张一模一样的灰卡。
-           * 现在：每个控件都有行内标签；非约定阶段不渲染时间与地点；节点按
-           * 待赴约 / 已过未勾 / 已发生 三种状态标色，左侧一条细轨把它们连成一条真「线」。
-           */}
-          <div className="pline__lead">
-            <Icon name="clock" size={15} />
-            {nextNode ? (
-              <span>
-                下一次：<b>{STATUS_META[nextNode.status]?.label || nextNode.status}</b>
-                {' · '}{fmtDate(nextNode.at)}{nextNode.time ? ` ${nextNode.time}` : ''}
-                {'（'}{relDay(daysUntil(nextNode.at))}{'）'}
-                {!nextNode.time && <span className="tx-4"> — 还没定几点，补上时间日历里也看得到</span>}
-              </span>
-            ) : (
-              <span>
-                {line.length
-                  ? '这条进度线暂时没有待赴的笔试 / 面试 —— 补一场，日历里也就有了。'
-                  : '还没有节点。先加一个「已提交」，再补笔试 / 面试的日期时间。'}
-              </span>
-            )}
-          </div>
-
-          {line.length === 0 && (
-            <div className="pline__empty">
-              <div className="tx-3" style={{ fontSize: 13 }}>这条记录还没有进度节点</div>
-              <div className="tx-4" style={{ fontSize: 12, marginTop: 6 }}>先加一个「已提交」，再补笔试 / 面试时间</div>
+        <div className="timeline" style={{ marginTop: 6 }}>
+          {/* store 的 migrate() 会给 timeline 兜底，但这里再判一次：这条渲染路径最昂贵
+              ——它抛错会让整张投递列表一起白掉，而失败信息只是个 TypeError，
+             从界面上看只像「点了没反应」。宁可多一个 || []。 */}
+          {[...(app.timeline || [])].reverse().map((t, i) => (
+            <div className="timeline__item" key={i}>
+              <div className="row gap-8">
+                <Badge tone="badge--accent">{STATUS_META[t.status]?.label || t.status}</Badge>
+                <span className="tx-3" style={{ fontSize: 12 }}>{fmtDate(t.at)}</span>
+              </div>
+              {t.note && <div className="tx-2" style={{ fontSize: 13, marginTop: 5 }}>{t.note}</div>}
             </div>
-          )}
-
-          <div className="pline">
-            {line.map((t, i) => {
-              const id = stageId(t, i);
-              const sched = isScheduledStage(t.status);
-              const dd = daysUntil(t.at);
-              /* 三种状态决定圆点与卡片描边：已发生（灰）/ 已过未勾（警示）/ 待赴约（赭红） */
-              const tone = t.done ? 'done' : !sched ? 'plain' : dd !== null && dd < 0 ? 'missed' : 'upcoming';
-              return (
-                <div key={id} className={cn('pline__node', `is-${tone}`, id === nextNodeId && 'is-next')}>
-                  <span className="pline__dot" aria-hidden="true" />
-                  <div className="pline__box">
-                    <div className="pline__row">
-                      <span className="pline__cell">
-                        <span className="pline__lbl">阶段</span>
-                        <select className="select select--sm pline__status" value={t.status}
-                          title="这个节点发生在哪一步"
-                          onChange={(e) => updateStage(live.id, id, { status: e.target.value as AppStatus })}>
-                          {STATUS_ORDER.map((s) => <option key={s} value={s}>{STATUS_META[s].label}</option>)}
-                        </select>
-                      </span>
-                      <span className="pline__cell">
-                        <span className="pline__lbl">日期</span>
-                        <input className="input input--sm pline__date" type="date" value={t.at || ''}
-                          onChange={(e) => updateStage(live.id, id, { at: e.target.value })} />
-                      </span>
-                      {/* 时间列**始终占位**：只在笔试/面试渲染会让两张卡的第一行错列，
-                          勾选框与删除图标就落不到同一条竖线上（这正是「看起来没对齐」的根源） */}
-                      <span className="pline__cell">
-                        {(sched && (t.time || openTime[id])) ? (
-                          <>
-                            <span className="pline__lbl">时间</span>
-                            <input className="input input--sm pline__time" type="time" value={t.time || ''}
-                              autoFocus={!t.time}
-                              onChange={(e) => updateStage(live.id, id, { time: e.target.value || undefined })} />
-                          </>
-                        ) : sched ? (
-                          <>
-                            <span className="pline__lbl">时间</span>
-                            <button type="button" className="pline__slot"
-                              title="点开选时间；定了几点会同步到日历"
-                              onClick={() => setOpenTime((m) => ({ ...m, [id]: true }))}>未定</button>
-                          </>
-                        ) : <span className="pline__lbl pline__lbl--dim" aria-hidden="true" />}
-                      </span>
-                      {/* 中间那段空白用一条点线接过去：纸质表单里的「引导线」，比留一块白更像有意的排版 */}
-                      <span className="pline__gap" aria-hidden="true" />
-                      {/* 已发生的节点不再喊「已过 6 天」—— 事办完了，这行字只剩噪音 */}
-                      <em className={cn('pline__rel', dd !== null && dd < 0 && !t.done && 'is-past')}>
-                        {!t.done && dd !== null ? relDay(dd) : ''}
-                      </em>
-                      <label className={cn('pline__done', t.done && 'is-on')}
-                        title={sched ? '赴约之后勾上：日历里就不再催这一场' : '这件事已经发生过了'}>
-                        <input type="checkbox" checked={!!t.done}
-                          onChange={(e) => updateStage(live.id, id, { done: e.target.checked })} />
-                        <span>{sched ? '已赴约' : '已发生'}</span>
-                      </label>
-                      <button className="pline__del" aria-label="删除该节点" title="删除该节点"
-                        onClick={() => { removeStage(live.id, id); toast('已删除进度节点', 'info'); }}>
-                        <Icon name="trash" size={14} />
-                      </button>
-                    </div>
-                    <div className={cn('pline__row pline__row--sub', !sched && 'pline__row--sub-one')}>
-                      {sched && (
-                        <span className="pline__cell pline__cell--grow">
-                          <span className="pline__lbl">地点</span>
-                          <input className="input input--sm" placeholder="支行 12 层 / 会议号 123-456"
-                            defaultValue={t.place || ''} key={`p-${id}-${t.place || ''}`}
-                            onBlur={(e) => { if ((e.target.value || '') !== (t.place || '')) updateStage(live.id, id, { place: e.target.value.trim() || undefined }); }} />
-                        </span>
-                      )}
-                      <span className="pline__cell pline__cell--grow">
-                        <span className="pline__lbl">备注</span>
-                        <input className="input input--sm" placeholder="考场要求、带的材料…"
-                          defaultValue={t.note || ''} key={`n-${id}-${t.note || ''}`}
-                          onBlur={(e) => { if ((e.target.value || '') !== (t.note || '')) updateStage(live.id, id, { note: e.target.value.trim() || undefined }); }} />
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          <div className="pline__add">
-            <span className="tx-3" style={{ fontSize: 12, fontWeight: 640 }}>加节点</span>
-            <Button size="sm" icon="plus" onClick={() => addNode('test')}>笔试</Button>
-            <Button size="sm" icon="plus" onClick={() => addNode('interview')}>面试</Button>
-            <Button size="sm" icon="plus" onClick={() => addNode('offer')}>Offer</Button>
-            <Button size="sm" icon="plus" onClick={() => addNode('submitted')}>已提交</Button>
-            <span className="grow" />
-            <span className="tx-4" style={{ fontSize: 11.5 }}>节点按日期自动排序</span>
-          </div>
-        </>
+          ))}
+          {(app.timeline || []).length === 0 && <Empty icon="clock" title="暂无进度记录" />}
+        </div>
       )}
     </Modal>
   );

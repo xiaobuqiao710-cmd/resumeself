@@ -169,10 +169,6 @@
 :root[data-skin="paper"] .btn { -webkit-backdrop-filter: none; backdrop-filter: none; }
 :root[data-skin="paper"] .btn--primary { color: #fff; box-shadow: 0 6px 16px -10px rgba(201, 100, 66, .8); }
 :root[data-skin="paper"] .btn--primary:hover { box-shadow: 0 10px 20px -10px rgba(201, 100, 66, .9); }
-/* 「删除」这类破坏性按钮在纸面上不该是一块高饱和粉底 —— 它比主按钮还抢眼，读起来像推荐操作。
-   降成描边红字，取色与 .badge--danger 同族，安静但仍是危险色。 */
-:root[data-skin="paper"] .btn--danger { background: transparent; border-color: rgba(180, 68, 58, .3); color: #9b3a31; }
-:root[data-skin="paper"] .btn--danger:hover { background: rgba(180, 68, 58, .08); border-color: rgba(180, 68, 58, .5); }
 :root[data-skin="paper"] .badge--ok { color: #2f6a4e; background: rgba(63, 122, 94, .1); border-color: rgba(63, 122, 94, .28); }
 :root[data-skin="paper"] .badge--info { color: #2f5d8a; background: rgba(58, 110, 165, .1); border-color: rgba(58, 110, 165, .28); }
 :root[data-skin="paper"] .badge--warn { color: #8a5c14; background: rgba(176, 119, 29, .12); border-color: rgba(176, 119, 29, .3); }

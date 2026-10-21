@@ -9,7 +9,6 @@ import { TopBar } from './components/layout/TopBar';
 import { Toaster, Button, Modal, Segmented } from './components/ui/Kit';
 import { Icon } from './components/ui/Icon';
 import Dashboard from './components/modules/Dashboard';
-import { DemoBanner } from './lib/demoMode';
 
 /* 其余板块按需懒加载：首屏只下载概览（原先是单个 649KB 大包一次拉全）。
    加载器统一放在 lib/modules.ts —— 与「空闲预取」共用同一批 import，保证 chunk 只产出一份，
@@ -63,24 +62,14 @@ const TITLES: Record<string, { t: string; c: string }> = Object.fromEntries(
 
 function Shell({ userEmail, onLogout }: { userEmail?: string; onLogout?: () => void }) {
   const { view, setView, skin, exportAll, importAll, resetAll, toast,
-    remind, setRemind, jobs, applications, allEvents,
+    remind, setRemind, jobs, applications, events,
     interviews, offers, materials, contacts, questions, importMerge,
-    cloud, pushToCloud, enableCloud, storageKey, storageUnsaved, storageCleanupTick } = useStore();
+    cloud, pushToCloud, enableCloud, storageKey } = useStore();
   const [online, setOnline] = useState(false);
   const [account, setAccount] = useState<MailAccount | null>(null);
   const [unread, setUnread] = useState(0);
   const [mobileNav, setMobileNav] = useState(false);
   const [settings, setSettings] = useState(false);
-  /**
-   * 配额告警里的「打开备份与清理」→ store 把 storageCleanupTick +1 → 这里展开设置面板。
-   * 展开的是设置弹窗本身（用户找的就是「设置 → 数据与备份」），
-   * 而不是再做一个只给配额用的专用弹窗：导出备份、清快照、看大项都在这一个地方，
-   * 两套界面迟早会分叉。
-   */
-  useEffect(() => {
-    if (!storageCleanupTick) return;
-    setSettings(true);
-  }, [storageCleanupTick]);
   /* 皮肤市场：做成独立弹窗而不是塞进设置的分页里。
      换皮肤是「看一眼、换一个、再看一眼」的行为，埋在设置第三层分页里就完全没法比较了。 */
   const [skinMkt, setSkinMkt] = useState(false);
@@ -152,7 +141,7 @@ function Shell({ userEmail, onLogout }: { userEmail?: string; onLogout?: () => v
     const today = todayISO();
     switch (id) {
       case 'applications': return applications.filter((a) => !['offer', 'reject'].includes(a.status)).length;
-      case 'calendar': return allEvents.filter((e) => e.date === today).length;
+      case 'calendar': return events.filter((e) => e.date === today).length;
       case 'jobs': return jobs.filter((j) => j.status === 'new' || j.status === 'interested').length;
       case 'bank': return questions.filter((q) => !q.mastered).length;
       case 'interviews': return interviews.filter((i) => i.result === 'pending').length;
@@ -161,7 +150,7 @@ function Shell({ userEmail, onLogout }: { userEmail?: string; onLogout?: () => v
       case 'contacts': return contacts.filter((c) => c.nextFollowUp && c.nextFollowUp <= today).length;
       default: return 0;
     }
-  }, [applications, allEvents, jobs, questions, interviews, offers, materials, contacts]);
+  }, [applications, events, jobs, questions, interviews, offers, materials, contacts]);
   const [snaps, setSnaps] = useState<Snapshot[]>([]);
   /* 打开设置就把快照列表读出来：否则「清理全部快照」要等用户先点一次「查看快照」才出现 */
   useEffect(() => { if (settings) setSnaps(listSnapshots()); }, [settings]);
@@ -201,34 +190,6 @@ function Shell({ userEmail, onLogout }: { userEmail?: string; onLogout?: () => v
   }, []);
 
   const doExport = () => { download(`秋招网申数据-${new Date().toISOString().slice(0, 10)}.json`, exportAll()); toast('已导出全部数据'); };
-
-  /**
-   * ⭐「先导出再清理」：给配额满的用户一个不会做错顺序的入口。
-   *
-   * 为什么不能只写提示：告警让用户「先导出、再清理」，可导出与清理分散在设置的三四个小节里，
-   * 用户很容易先点了清理。而清快照腾不出位置说明大头在数据本身 —— 那更要先落盘。
-   *
-   * 顺序在浏览器里是**保证得住的**：`download()` 是 a[href=blob] + click，同步触发、同一次点击的用户手势内，
-   * 现代浏览器不会拦；`exportAll()` 读的是**内存里的当前状态**（不是 localStorage），
-   * 所以哪怕本机那副本已经存不下，导出的也是用户眼前这份，当前修改一并带上。
-   */
-  const doBackupThenClean = () => {
-    try {
-      download(`秋招网申数据-${new Date().toISOString().slice(0, 10)}.json`, exportAll());
-    } catch (e) {
-      toast('导出失败：' + (e as Error).message, 'err', 8000);
-      return;
-    }
-    const freed = clearSnapshots();
-    setSnaps(listSnapshots());
-    const u = localUsage(storageKey);
-    const left = u.mainChars * 2;          // 字符数 → 字节（localStorage 按 UTF-16）
-    if (left > 3_000_000) {
-      toast(`备份已下载；快照已清空（腾出 ${fmtBytes(freed)}）。但主数据本身还有约 ${fmtBytes(u.mainChars)} —— 请接着删岗位库里不投的岗位。`, 'info', 12000);
-    } else {
-      toast(`备份已下载，旧快照已清空（腾出 ${fmtBytes(freed)}）。本机现在有足够空间保存新的修改了。`, 'ok', 9000);
-    }
-  };
   /* 导入前先给当前数据留一份快照，任何误操作都能从「本机自动备份」回滚 */
   const snapshotNow = () => {
     try {
@@ -478,7 +439,7 @@ function Shell({ userEmail, onLogout }: { userEmail?: string; onLogout?: () => v
                 toast(ok ? '已开启系统通知（每档每天最多一次）' : '未获得通知权限', ok ? 'ok' : 'err');
               }}>{remind.enabled ? '系统通知：已开启' : '开启系统通知'}</Button>
               <Button size="sm" icon="calendar" onClick={() => {
-                const ics = buildICS(deadlinesToIcsEvents(jobs, applications, allEvents, remind.days?.length ? remind.days : [7, 3, 1]), '2027 秋招追踪');
+                const ics = buildICS(deadlinesToIcsEvents(jobs, applications, events, remind.days?.length ? remind.days : [7, 3, 1]), '2027 秋招追踪');
                 download(`秋招截止日历-${new Date().toISOString().slice(0, 10)}.ics`, ics, 'text/calendar');
                 toast('已导出 ICS，双击导入系统日历');
               }}>导出 ICS 日历</Button>
@@ -786,26 +747,13 @@ function Shell({ userEmail, onLogout }: { userEmail?: string; onLogout?: () => v
           {/* ③ 本机数据概览 + 整站备份的导入导出 */}
           <div>
             <div className="h-sub" style={{ marginBottom: 8 }}>③ 本机数据与整站备份</div>
-            {storageUnsaved && (
-              <div className="glass" style={{ marginBottom: 10, padding: '10px 12px', borderRadius: 12,
-                borderColor: 'var(--danger-brd, rgba(220,80,80,.35))', lineHeight: 1.8 }}>
-                <span className="badge badge--danger" style={{ flexShrink: 0 }}>最近一次修改没存进本机</span>
-                <div style={{ fontSize: 12.5, marginTop: 6 }}>
-                  本机浏览器存储已满，且清空旧快照也腾不出位置 —— 说明占地方的是数据本身（多半是岗位库太大）。
-                  先点下面的<b>「先导出备份，再清理旧快照」</b>把当前数据落盘，再去「岗位追踪 → 更多 → 清理岗位库」删掉不投的岗位。
-                  <b>在腾出空间之前，别刷新或关闭这个标签页</b>：没存下的修改只在内存里。
-                </div>
-              </div>
-            )}
             <div className="field__hint" style={{ marginBottom: 10 }}>
               云端版把整站内容存进你自己的 Supabase 账号（每次改动先写本机缓存、再防抖同步到云端），
               同时在本机浏览器留一份完整副本 —— 断网或云端不可用时站点照常可用。<br />
-              当前：岗位 <b>{jobs.length}</b> · 投递 <b>{applications.length}</b> · 日历 <b>{allEvents.length}</b> · 题库 <b>{questions.length}</b> · 面试复盘 <b>{interviews.length}</b> · 人脉 <b>{contacts.length}</b> · 占用约 <b>{fmtBytes(usage.chars)}</b>（其中快照 {fmtBytes(usage.snapshotChars)}）
+              当前：岗位 <b>{jobs.length}</b> · 投递 <b>{applications.length}</b> · 日历 <b>{events.length}</b> · 题库 <b>{questions.length}</b> · 面试复盘 <b>{interviews.length}</b> · 人脉 <b>{contacts.length}</b> · 占用约 <b>{fmtBytes(usage.chars)}</b>（其中快照 {fmtBytes(usage.snapshotChars)}）
             </div>
             <div className="row gap-8 wrap">
               <Button size="sm" icon="download" onClick={doExport}>导出 JSON 备份（整站）</Button>
-              {/* 配额满时的正确做法只有一种顺序：先落盘、再删。把它做成一个按钮，用户就不需要读说明书。 */}
-              <Button size="sm" variant="primary" icon="download" onClick={doBackupThenClean}>先导出备份，再清理旧快照</Button>
               <label className="btn btn--sm" style={{ cursor: 'pointer' }}>
                 <Icon name="upload" size={14} /> 导入并合并
                 <input type="file" accept="application/json" hidden
@@ -839,7 +787,7 @@ function Shell({ userEmail, onLogout }: { userEmail?: string; onLogout?: () => v
               <Button size="sm" icon="download" onClick={() => { download(`投递记录-${new Date().toISOString().slice(0, 10)}.csv`, '\uFEFF' + applicationsToCSV(applications), 'text/csv'); toast('已导出投递 CSV'); }}>投递 CSV</Button>
               <Button size="sm" icon="calendar" onClick={() => {
                 const alarmDays = remind.days?.length ? remind.days : [7, 3, 1];
-                download(`秋招截止日历-${new Date().toISOString().slice(0, 10)}.ics`, buildICS(deadlinesToIcsEvents(jobs, applications, allEvents, alarmDays), '2027 秋招追踪'), 'text/calendar');
+                download(`秋招截止日历-${new Date().toISOString().slice(0, 10)}.ics`, buildICS(deadlinesToIcsEvents(jobs, applications, events, alarmDays), '2027 秋招追踪'), 'text/calendar');
                 toast('已导出 ICS（含提前提醒），双击即可导入手机日历');
               }}>导出日历 ICS</Button>
             </div>
@@ -983,11 +931,6 @@ function Shell({ userEmail, onLogout }: { userEmail?: string; onLogout?: () => v
                     {b.key.replace(/^qz\.cloud\.[^.]+/, 'qz.cloud.*').slice(0, 46)} <b>{fmtBytes(b.chars)}</b>
                   </span>
                 ))}
-                <div style={{ marginTop: 4 }}>
-                  上面写着 <span className="mono">qz.cloud.*</span> 的是<b>整站数据本身</b>（删不掉，删了就没数据了）——
-                  要减的是它里面的内容：<b>岗位库</b>里早已截止/不投的岗位占大头时，去「岗位追踪 → 更多 → 清理岗位库」批量删除；
-                  <span className="mono">qz.agent.*</span> 是 AI 会话历史，可在右侧 AI 面板里删掉旧会话。
-                </div>
               </div>
             )}
             {snaps.length > 0 && (
@@ -1053,29 +996,12 @@ type BootState =
   | { st: 'ready'; userId: string; email: string; boot: CloudBoot };
 
 function CloudApp({ agentOnly }: { agentOnly: boolean }) {
-  /* 只读演示模式（?demo=1）：直接以演示数据启动，不读也不写云端与本机缓存。
-     实现见 lib/demoMode.tsx，只在带这个参数时被动态载入。 */
-  const DEMO = typeof location !== 'undefined' && new URLSearchParams(location.search).get('demo') === '1';
   const [boot, setBoot] = useState<BootState>({ st: 'loading' });
-  /* 演示模式时从 #/xxx 读来的落地板块；生产环境恒为 undefined */
-  const [demoView, setDemoView] = useState<string | undefined>(() => {
-    /* 演示模式的落地板块：#/calendar → 'calendar'。
-       生产环境这段恒为 undefined（导航状态只存在 store 里，不走 URL）。 */
-    if (typeof location === 'undefined') return undefined;
-    if (new URLSearchParams(location.search).get('demo') !== '1') return undefined;
-    const v = (location.hash || '').replace(/^#\/?/, '').split('?')[0].trim();
-    return v || undefined;
-  });
   /* 重置密码回跳：必须在进站之前插一屏「设置新密码」。
      少了这一屏，用户点完邮件只会被直接登录、密码其实没改 —— 这是线上站最容易踩死的死胡同。 */
   const [recovery, setRecovery] = useState(INITIAL_RECOVERY);
 
   const openFor = useCallback(async (userId: string, email: string) => {
-    if (DEMO) {
-      const m = await import('./lib/demoMode');
-      setBoot({ st: 'ready', userId, email, boot: await m.demoBoot() });
-      return;
-    }
     try {
       const r = await loadCloudState(userId);
       setBoot({ st: 'ready', userId, email, boot: { ok: true, state: r.state, migrated: r.migrated, savedAt: r.savedAt } });
@@ -1087,21 +1013,6 @@ function CloudApp({ agentOnly }: { agentOnly: boolean }) {
   }, []);
 
   useEffect(() => {
-    if (!DEMO) return;
-    let alive = true;
-    /* 演示数据见 src/lib/demoSeed.ts —— 只有带 ?demo=1 时才会被载入 */
-    void import('./lib/demoMode').then((m) => m.demoBootState()).then((st) => {
-      if (!alive) return;
-      setDemoView(st.initialView);
-      /* 证明用日志：演示模式落地板块。生产路径不会打这一行 */
-      console.info('[demo] initialView =', st.initialView);
-      setBoot(st as BootState);
-    });
-    return () => { alive = false; };
-  }, [DEMO]);
-
-  useEffect(() => {
-    if (DEMO) return;
     /* 没有配 Supabase 时**不能**碰 supabase.auth：那会走进惰性报错的替身，
        抛出的异常会把这一屏也打掉。配置守卫已经在下方渲染层拦住了这种情况，
        这里只是让副作用也一起短路。 */
@@ -1132,7 +1043,7 @@ function CloudApp({ agentOnly }: { agentOnly: boolean }) {
 
   /* 配置缺失时 boot 永远停在 loading（副作用已被短路），必须先拦一道，
      否则用户看到一个永远转不完的「正在连接云端」—— 比黑屏好一点，但同样是死胡同。 */
-  if (!SUPABASE_CONFIGURED && !DEMO) return <MissingConfig />;
+  if (!SUPABASE_CONFIGURED) return <MissingConfig />;
 
   if (boot.st === 'loading') {
     return (
@@ -1150,8 +1061,7 @@ function CloudApp({ agentOnly }: { agentOnly: boolean }) {
 
   return (
     /* key 绑定 userId：换账号时强制重建 Provider，避免上个账号的状态泄漏到新账号界面 */
-    <StoreProvider key={boot.userId} userId={boot.userId} boot={boot.boot} demo={DEMO} initialView={demoView as never}>
-      {DEMO && <DemoBanner />}
+    <StoreProvider key={boot.userId} userId={boot.userId} boot={boot.boot}>
       {agentOnly
         ? <><AgentPanel fullPage /><Toaster /></>
         : <Shell userEmail={boot.email} onLogout={logout} />}

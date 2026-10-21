@@ -2,7 +2,6 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { useStore } from '../../store/store';
 import { JobsImportModal } from './JobsImport';
 import { JobsDedupeModal } from './JobsDedupe';
-import { JobsCleanupModal } from './JobsCleanup';
 import { planJobDedupe } from '../../lib/dedupe';
 import { JobsCompanyList } from './JobsCompanyList';
 import { JOB_STATUS_META, scoreTone, tierTone, tierRank, TIER_SHORT } from '../../lib/jobMeta';
@@ -35,7 +34,7 @@ const SOURCES = [
 
 export default function Jobs() {
   const { jobs, addJob, updateJob, removeJob, addApp, setStatus, applications, profile, addEvent, toast,
-    companies, upsertCompany, reconcileNow, storageCleanupTick } = useStore();
+    companies, upsertCompany, reconcileNow } = useStore();
   const [tab, setTab] = useState<'list' | 'companies'>('list');
   const [filter, setFilter] = useState<JobStatus | 'all'>('all');
   const [q, setQ] = useState('');
@@ -49,7 +48,6 @@ export default function Jobs() {
   const [menuOpen, setMenuOpen] = useState(false);                            // 「更多」下拉                       // 招聘渠道入口（默认收起）
   const [syncOpen, setSyncOpen] = useState(false);                            // 从网盘拉取汇总表
   const [dedupeOpen, setDedupeOpen] = useState(false);                        // 清理重复岗位
-  const [cleanupOpen, setCleanupOpen] = useState(false);                      // 清理岗位库（腾本机存储）
   const [syncText, setSyncText] = useState('');                               // 拉取到的原文，交给导入弹窗
   const [matchBusy, setMatchBusy] = useState<string | null>(null);
   const [converting, setConverting] = useState<JobPosting | null>(null);   // 转网申记录确认弹窗
@@ -230,7 +228,6 @@ export default function Jobs() {
                   { icon: 'filter', label: '自动归类招聘线', run: () => autoClassify() },
                   { icon: 'filter', label: dupCount > 0 ? `清理重复岗位（${dupCount} 条）` : '清理重复岗位', run: () => setDedupeOpen(true) },
                   { icon: 'archive', label: `归档已截止岗位${expiredJobs.length ? `（${expiredJobs.length} 条）` : ''}`, run: () => archiveExpired() },
-                  { icon: 'trash', label: '清理岗位库（删除、腾出本机存储）', run: () => setCleanupOpen(true) },
                 ] as { icon: string; label: string; run: () => void }[]).map((it) => (
                   <button key={it.label} className="nav__item" style={{ width: '100%' }}
                     onClick={() => { setMenuOpen(false); it.run(); }}>
@@ -241,7 +238,6 @@ export default function Jobs() {
             </>
           )}
           {dedupeOpen && <JobsDedupeModal onClose={() => setDedupeOpen(false)} />}
-          {cleanupOpen && <JobsCleanupModal onClose={() => setCleanupOpen(false)} />}
           {importing && <JobsImportModal onClose={() => { setImporting(false); setSyncText(''); }}
             initialText={syncText || undefined} sourceLabel={syncText ? '来自网盘' : undefined} />}
           {syncOpen && <JobsSyncModal onClose={() => setSyncOpen(false)}
