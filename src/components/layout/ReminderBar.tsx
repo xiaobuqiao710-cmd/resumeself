@@ -4,6 +4,7 @@ import { Icon } from '../ui/Icon';
 import { Badge } from '../ui/Kit';
 import { collectReminders, fireNotifications, LEVEL_META } from '../../lib/remind';
 import { cn, fmtDate } from '../../lib/util';
+import { DeadlineBriefModal } from '../ui/DeadlineBrief';
 import type { ViewId } from '../../types';
 
 /**
@@ -19,6 +20,9 @@ export function ReminderBar({ onNav }: { onNav: (v: ViewId) => void }) {
      只读 events 会漏掉它们（「日历里有面试、提醒条不响」）。 */
   const { jobs, applications, allEvents, remind, toast } = useStore();
   const [open, setOpen] = useState(false);
+  /* 「AI 梳理截止」：展开后给一个入口，落在**已经打开的**面板里 ——
+     折叠状态下这条 bar 仍然只是一行字，不塞按钮（它出现在每一页顶部）。 */
+  const [showBrief, setShowBrief] = useState(false);
 
   const items = useMemo(
     () => collectReminders({ jobs, applications, events: allEvents }, remind).filter((i) => i.days >= 0),
@@ -97,6 +101,9 @@ export function ReminderBar({ onNav }: { onNav: (v: ViewId) => void }) {
               另有 {deadlinesOf.length} 个岗位即将截止，去岗位库看 ›
             </button>
           )}
+          <button className="copy-btn" style={{ alignSelf: 'flex-start' }} onClick={() => setShowBrief(true)}>
+            AI 梳理截止 · 哪些要截止、什么时候截止 ›
+          </button>
           {!remind.enabled && (
             <span className="tx-4" style={{ fontSize: 11, padding: '2px 8px' }}>
               想要关掉网页也到点提醒？到「设置 → 外观与提醒」开启系统通知或导出日历。
@@ -104,6 +111,8 @@ export function ReminderBar({ onNav }: { onNav: (v: ViewId) => void }) {
           )}
         </div>
       )}
+
+      {showBrief && <DeadlineBriefModal onClose={() => setShowBrief(false)} />}
     </div>
   );
 }

@@ -148,8 +148,13 @@ export function DeadlineBriefModal({ onClose }: { onClose: () => void }) {
             ) : loading ? (
               <div className="tx-3" style={{ fontSize: 13 }}>正在让 AI 看一眼…（清单已经算好了，就在下面）</div>
             ) : aiErr ? (
-              <div className="tx-3" style={{ fontSize: 12.5 }}>
-                AI 暂时没连上（{aiErr.slice(0, 60)}）。下面是按日期规则算好的清单，一样能用。
+              /* 连不上时不把「Failed to fetch / 127.0.0.1:8799」这种原始报错糊到脸上：
+                 用户要的是清单，不是诊断信息。原文挂在 title 里，需要排查时悬停可看。 */
+              <div className="tx-3" style={{ fontSize: 12.5 }} title={aiErr}>
+                AI 暂时没连上，下面是按日期规则算好的清单，一样能用。
+                <span className="tx-4" style={{ display: 'block', fontSize: 11, marginTop: 3 }}>
+                  常见原因：Key 失效 / 额度用完 / 当前网络到不了模型服务。
+                </span>
               </div>
             ) : (
               <div style={{ fontSize: 13.5 }}>{brief.summary}</div>

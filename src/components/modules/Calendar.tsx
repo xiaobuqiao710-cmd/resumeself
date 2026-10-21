@@ -5,6 +5,7 @@ import { Icon } from '../ui/Icon';
 import { Button, Badge, Modal, Empty } from '../ui/Kit';
 import { cn, uid, toISO, fromISO, todayISO, fmtDate, deadlineLabel } from '../../lib/util';
 import { parseStageEventId, isStageEventId } from '../../lib/appTimeline';
+import { DeadlineBriefModal } from '../ui/DeadlineBrief';
 
 const DOW = ['一', '二', '三', '四', '五', '六', '日'];
 const TYPE_META: Record<EventType, { label: string; cls: string }> = {
@@ -48,6 +49,10 @@ export default function Calendar() {
   const [selected, setSelected] = useState<string | null>(null);
   const [editing, setEditing] = useState<CalEvent | null>(null);
   const [creating, setCreating] = useState<Partial<CalEvent> | null>(null);
+  /* 「AI 梳理截止」面板：一按就出「哪些要截止、何时截止」。
+     清单由 lib/deadlineBrief.ts 按规则算（日期/剩余天数/去重口径全部确定），
+     AI 只在上面补一句人话；没配 Key 也照样能看清单。 */
+  const [showBrief, setShowBrief] = useState(false);
 
   const cells = useMemo(() => monthMatrix(cursor.y, cursor.m), [cursor]);
   /* 只把笔/面/Offer 装进日历（见 isCalEvent）。byDate 是格子与选中日详情的唯一供数口，
@@ -129,6 +134,10 @@ export default function Calendar() {
           <Button size="sm" onClick={goToday}>今天</Button>
           <Button size="sm" variant="ghost" icon="chevronR" onClick={() => shift(1)} aria-label="下月" />
           <span className="h-sub" style={{ minWidth: 108, textAlign: 'center' }}>{monthLabel}</span>
+          {/* 「AI 梳理截止」：这一屏真正要回答的问题不是「日历长什么样」，
+              而是「我这几天有什么要截止、什么时候截止」。贴着主按钮放，
+              但不抢「新增事件」的位置 —— 它是查询，不是录入。 */}
+          <Button size="sm" icon="sparkles" className="btn--ai" onClick={() => setShowBrief(true)}>AI 梳理截止</Button>
           <Button variant="primary" icon="plus" onClick={() => setCreating(emptyEvent(todayISO()))}>新增事件</Button>
         </div>
       </div>
@@ -270,6 +279,11 @@ export default function Calendar() {
             setEditing(null);
           }} />
       )}
+
+      {/* AI 梳理截止：一按就出「哪些要截止、什么时候截止」。
+          清单由规则算（lib/deadlineBrief.ts），AI 只在这份清单上补一句人话 ——
+          没配 Key 也照样能看，不把「有没有 AI」变成「能不能用」的门槛。 */}
+      {showBrief && <DeadlineBriefModal onClose={() => setShowBrief(false)} />}
     </div>
   );
 }

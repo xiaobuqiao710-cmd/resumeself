@@ -21,7 +21,7 @@ export QZ_BRIDGE_URL=${QZ_BRIDGE_URL:-http://127.0.0.1:8790}
 export QZ_BRIDGE_TOKEN_FILE=${QZ_BRIDGE_TOKEN_FILE:-$PWD/mail-bridge/bridge.token}
 
 # 需要真实账号的 loginreal 不在列：它要 QZ_USER / QZ_PASS，跑失败不代表产品有问题
-ALL="views removeapp palette convert mailsync settings settingsopt overlap import modules bankrepo docx mail crud reset twotab stale staledirty cloudsync typing misc mobile pwa roundtrip webdav scroll stacklock perf mailsend ai agenttools agentconv onboard pline calv"
+ALL="views removeapp palette convert mailsync settings settingsopt overlap import modules bankrepo docx mail crud reset twotab stale staledirty cloudsync typing misc mobile pwa roundtrip webdav scroll stacklock perf mailsend ai agenttools agentconv onboard pline calv brief"
 SCENARIOS=${*:-$ALL}
 
 # overlap 想真的压到「长字段把卡片撑破、文字压到邻卡上」这条断言，

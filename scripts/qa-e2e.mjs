@@ -4350,6 +4350,11 @@ async function scenarioCalv(page) {
 
   await page.goto();
   await injectHelpers(page);
+  /* 播种前必须等 app 把 uid 缓存键（qz.cloud.<uid>）写出来。
+     早于这一步写，数据会落到 qz.cloud.default；app 随后按 uid 键读 → 读到空 →
+     我们刚种进去的东西「凭空消失」，表现为面板/日历全空，且**约一半概率**复现
+     （取决于导航与鉴权谁先完成），非常像产品缺陷。 */
+  await page.waitFor(`(() => { const ks = Object.keys(localStorage).filter((k) => k.startsWith('qz.cloud.') && k !== 'qz.cloud.default'); return ks.length > 0; })()`, 10000);
 
   const seeded = await page.eval(`
     const s = window.__q.state();
@@ -4375,6 +4380,10 @@ async function scenarioCalv(page) {
       ],
     };
     localStorage.setItem(window.__q.cacheKey(), JSON.stringify({ ...s, events, applications: [app] }));
+    /* 首次访问时 app 还没写出 qz.cloud.<uid>，cacheKey() 会回退到 qz.cloud.default ——
+       这时只写一个键，重载后 app 按 uid 键读，读到的还是空的（实测偶发「播种进去又没了」）。
+       两个键都写，这类竞态就没了。 */
+    localStorage.setItem('qz.cloud.default', JSON.stringify({ ...s, events, applications: [app] }));
     return { testDay: iso(2), appDeadline: iso(5) };
   `);
   console.log('播种:', JSON.stringify(seeded));
@@ -4513,6 +4522,153 @@ async function scenarioCalv(page) {
   await page.shot('calv-390');
 
   console.log('日历口径巡检完成（只装笔试/面试/Offer）');
+}
+
+/* 场景：「AI 梳理截止」按钮。
+   用户 2026-10-20 的原话：「我建议直接就设置成一个 AI 按钮，我一按就显示你哪些要截止，以及何时截止。」
+   要点：清单是**规则算的**（lib/deadlineBrief.ts），AI 只补一句人话 ——
+   所以这里既验「按钮点得开、条目对得上」，也验「没配 AI Key 时清单照样完整」。 */
+async function scenarioBrief(page) {
+  const ok = (m) => console.log('✅ ' + m);
+  const bad = (m) => console.log('❌ ' + m);
+
+  await page.goto();
+  await injectHelpers(page);
+  /* 同 calv：等 uid 缓存键出现再播种，否则播种会落到 qz.cloud.default 被空键顶掉 */
+  await page.waitFor(`(() => { const ks = Object.keys(localStorage).filter((k) => k.startsWith('qz.cloud.') && k !== 'qz.cloud.default'); return ks.length > 0; })()`, 10000);
+
+  await page.eval(`
+    const s = window.__q.state();
+    const d0 = new Date();
+    const pad = (x) => String(x).padStart(2, '0');
+    const iso = (n) => {
+      const d = new Date(d0.getFullYear(), d0.getMonth(), d0.getDate() + n);
+      return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+    };
+    const app = (id, company, status, deadline, timeline) => ({
+      id, company, position: '法务岗', status, channel: '官网', location: '北京',
+      deadline, notes: '', createdAt: iso(-12), updatedAt: iso(-1), timeline: timeline || [],
+    });
+    const applications = [
+      /* 还在准备中 → 要催 */
+      app('qa-b-app-todo', '中债登', 'todo', iso(2)),
+      app('qa-b-app-fill', '中证登', 'filling', iso(0)),
+      /* 已经 Offer / 未通过 → 收尾了，不该再进清单 */
+      app('qa-b-app-offer', '大商所', 'offer', iso(1)),
+      app('qa-b-app-reject', '某券商', 'reject', iso(1)),
+      /* 已提交 → 网申截止不再催，但它的面试日程要进 */
+      app('qa-b-app-sub', '国开行', 'submitted', iso(5), [
+        { id: 'stg-x', status: 'interview', at: iso(4), time: '14:00', done: false },
+      ]),
+    ];
+    const jobs = [
+      /* 没投过的新岗位，明天截止 */
+      { id: 'qa-b-job-1', company: '中投公司', title: '法律合规', status: 'interested', deadline: iso(1), createdAt: iso(-3) },
+      /* 同一单位已经有提交过的投递 → 不该再催 */
+      { id: 'qa-b-job-2', company: '国开行', title: '法务', status: 'interested', deadline: iso(1), createdAt: iso(-3) },
+    ];
+    localStorage.setItem(window.__q.cacheKey(), JSON.stringify({ ...s, applications, jobs, events: [] }));
+    /* 同 calv：首访时 uid 键可能还没建立，两个键都写，避免「播种进去又没了」 */
+    localStorage.setItem('qz.cloud.default', JSON.stringify({ ...s, applications, jobs, events: [] }));
+    return { n: applications.length };
+  `);
+
+  await page.goto();
+  await injectHelpers(page);
+  if (!await page.waitFor(`(() => { const s = window.__q.state(); return (s.applications || []).length === 5; })()`, 8000)) {
+    bad('播种没生效，跳过');
+    return;
+  }
+
+  await page.eval(`return window.__q.click('.nav__item', '日程');`);
+  await page.waitFor(`document.querySelectorAll('.cal__cell').length >= 42`, 6000);
+  await sleep(400);
+
+  /* ① 按钮在不在、文案对不对 */
+  const btn = await page.eval(`
+    const b = [...document.querySelectorAll('button')].find((x) => /AI 梳理截止/.test(x.textContent));
+    return b ? { found: true, text: b.textContent.replace(/\\s+/g, ' ').trim() } : { found: false };
+  `);
+  if (btn.found) ok(`日历页有「AI 梳理截止」按钮：${btn.text}`);
+  else { bad('日历页找不到「AI 梳理截止」按钮'); return; }
+
+  await page.eval(`[...document.querySelectorAll('button')].find((x) => /AI 梳理截止/.test(x.textContent)).click(); return 'ok';`);
+  await sleep(700);
+
+  const panel = await page.eval(`
+    const m = document.querySelector('.modal');
+    if (!m) return { open: false };
+    const rows = [...m.querySelectorAll('.list-row')].map((r) => r.innerText.replace(/\\s+/g, ' ').trim());
+    return {
+      open: true,
+      title: (m.querySelector('.modal__title') || {}).textContent || '',
+      rows,
+      sections: [...m.querySelectorAll('span')].map((s) => s.textContent.trim()).filter((t) => /过期，还没处理|^今天$|^3 天内$|^7 天内$|^7 天以后$/.test(t)),
+      btns: [...m.querySelectorAll('button')].map((b) => b.textContent.replace(/\\s+/g, '')).filter(Boolean),
+      aiBlock: m.innerText.replace(/\\s+/g, ' ').slice(0, 60),
+    };
+  `);
+  console.log('面板:', JSON.stringify({ title: panel.title, rows: panel.rows.length, sections: panel.sections, btns: panel.btns }));
+
+  if (panel.open) ok(`点一下就开：「${panel.title}」`);
+  else { bad('点了没打开面板'); return; }
+
+  const all = panel.rows.join(' | ');
+  console.log('条目:', panel.rows.map((r) => r.slice(0, 46)).join('\n      '));
+
+  /* ② 该催的：两个未提交投递 + 一个新岗位 + 一条面试日程 */
+  if (/中债登/.test(all)) ok('未提交的投递（中债登）在清单里'); else bad('漏了未提交的投递「中债登」');
+  if (/中证登/.test(all)) ok('「填写中」的投递（中证登，今天截止）在清单里'); else bad('漏了「填写中」的投递「中证登」');
+  if (/中投公司/.test(all)) ok('没投过的新岗位（中投公司）在清单里'); else bad('漏了新岗位「中投公司」');
+  if (/国开行/.test(all)) ok('已提交投递的面试日程出现在清单里'); else bad('漏了国开行的面试日程');
+
+  /* ③ 不该催的：收尾的投递、已提交过的同单位岗位 */
+  if (!/大商所/.test(all)) ok('已 Offer 的投递不再催（大商所不在清单里）');
+  else bad('已 Offer 的投递还在催：大商所');
+  if (!/某券商/.test(all)) ok('已未通过的投递不再催（某券商不在清单里）');
+  else bad('已未通过的投递还在催：某券商');
+  const guokaiJob = panel.rows.filter((r) => /国开行/.test(r) && /岗位/.test(r));
+  if (guokaiJob.length === 0) ok('同单位已提交过的岗位不再催（国开行·岗位 未入清单）');
+  else bad(`同单位已提交的岗位重复催了：${guokaiJob.join(' / ')}`);
+
+  /* ④ 剩余天数是规则算的，一天都不能错 */
+  if (/今天/.test(all)) ok('剩余天数：有「今天」档');
+  else bad('今天截止的没标成「今天」');
+  if (/明天/.test(all)) ok('剩余天数：有「明天」档');
+  else bad('明天截止的没标成「明天」');
+  if (/4 ?天后/.test(all)) ok('剩余天数：面试日程算作「4 天后」');
+  else bad(`4 天后的日程剩余天数算错：${all.slice(0, 120)}`);
+
+  /* ⑤ 没配 Key 也不能拦着用 */
+  const noKey = panel.btns.some((t) => /未配置 AI Key/.test(t));
+  if (noKey) ok('没配 AI Key 时按钮显示「未配置 AI Key」，清单照样完整（AI 不是门槛）');
+  else ok(`AI 区按钮状态：${panel.btns.filter((t) => /AI/.test(t)).join(' / ') || '无'}`);
+  if (panel.rows.length >= 4) ok(`清单共 ${panel.rows.length} 条，规则算出来的`);
+  else bad(`清单只有 ${panel.rows.length} 条，少算了`);
+
+  await page.shot('brief-panel');
+  await page.eval(`const b = [...document.querySelectorAll('.modal button')].find((x) => /关闭/.test(x.textContent)); if (b) b.click(); return 'ok';`);
+  await sleep(400);
+  if (!await page.eval(`return !!document.querySelector('.modal');`)) ok('关闭能收起面板');
+  else bad('点了关闭面板还在');
+
+  /* ⑥ 顶部提醒条展开后也有入口（不用先跑回日历页） */
+  const rb = await page.eval(`
+    const sum = document.querySelector('.remind-bar__sum');
+    if (!sum) return { bar: false };
+    if (sum.getAttribute('aria-expanded') !== 'true') sum.click();
+    return { bar: true };
+  `);
+  if (rb.bar) {
+    await sleep(500);
+    const entry = await page.eval(`return [...document.querySelectorAll('.remind-bar button')].some((b) => /AI 梳理截止/.test(b.textContent));`);
+    if (entry) ok('顶部「截止提醒」展开后有 AI 梳理截止入口');
+    else bad('顶部提醒条展开后没有 AI 入口');
+  } else {
+    console.log('（本轮没有提醒条目，顶部提醒条未渲染，跳过该断言）');
+  }
+
+  console.log('AI 梳理截止巡检完成');
 }
 
 async function scenarioAppCat(page) {
@@ -4943,6 +5099,7 @@ try {
   if (scenario === 'appcat') { page.reset(); await scenarioAppCat(page); }
   if (scenario === 'pline') { page.reset(); await scenarioPline(page); }
   if (scenario === 'calv') { page.reset(); await scenarioCalv(page); }
+  if (scenario === 'brief') { page.reset(); await scenarioBrief(page); }
   if (scenario === 'mailsend') { page.reset(); await scenarioMailSend(page); }
   result = { errors: page.errors };
 } catch (e) {
