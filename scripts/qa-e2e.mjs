@@ -19,6 +19,7 @@
  *   node scripts/qa-e2e.mjs mailsend   # 写邮件两段式确认（拦截邮件桥 /api/send，不真发信）
  *   node scripts/qa-e2e.mjs perf       # 大数据量性能（500 岗位 / 400 投递 / 600 事件）
  *   node scripts/qa-e2e.mjs appcat     # 投递记录两级下钻：7 类别卡/计数/预览≤3/下钻/返回/搜索收敛/行内改状态
+ *   node scripts/qa-e2e.mjs pline      # 进度线编辑器：跨卡列对齐（勾选/删除同一竖线）/ 三档宽度不溢出 + 截图
  *   node scripts/qa-e2e.mjs typing     # 弹窗内真实键盘输入：焦点是否被父组件重渲染抢走（关键回归）
  *   node scripts/qa-e2e.mjs bankrepo   # 题库「分类卡墙→题库卡墙→题组列表」三级卡片墙（v7）：建分类/建题库/散题/
  *                                      #   批量归入/搜索收敛/整场导入=一张题组卡+展开重排解散/题库换分类题跟着走/
@@ -4204,97 +4205,314 @@ async function scenarioOnboard(page) {
    - 行内原生 select 改状态不弹窗；一进一出后类别页计数随之变化
    - 0 条时无论什么状态都短路到 .empty，绝不渲染 .catc */
 /**
- * 日历「只画笔面试」巡检。
+ * 进度线（投递记录 → 详情 → 进度线）视觉巡检。
  *
- * 用户 2026-10-21 的原话：「我的日历和待办应该只呈现笔面试的」。
- * 旧口径把网申截止（deadline）也画进月视图格子 —— 一个月几十条「截止·XXX」，
- * 把真正要赴的约挤成「+38 更多」，日历就废了。这条断言钉住新口径：
- *   · 月历格子里 .ev-deadline / .ev-todo 必须为 0；
- *   · 「近期安排」列表里同样为 0；
- *   · 「投递截止提醒」卡仍在（截止不删数据，只是不进日历）。
+ * 为什么单独开一个场景：这块是站里唯一「多行小表单 + 状态标记 + 时间线轴」混排的区域，
+ * 纯 DOM 断言测不出「一排控件只占左边三分之一、右边一大片空」「卡片被撑成两块灰饼」
+ * 这类观感问题，而每次改动都靠人眼截图比对太慢、也容易漏。
+ * 这里一次求值取全几何量：每个节点卡的高度、第一行控件的实际矩形、控件之间的空隙、
+ * 卡片内空白占比，再把 1440 与 390 两档各截一张图。
  *
- *   QZ_NO_SANDBOX=1 QZ_CLOUD=1 QZ_BASE=http://127.0.0.1:4173/ node scripts/qa-e2e.mjs calv
+ *   QZ_NO_SANDBOX=1 QZ_CLOUD=1 QZ_BASE=http://127.0.0.1:4173/ node scripts/qa-e2e.mjs pline
  */
+async function scenarioPline(page) {
+  const ok = (m) => console.log('✅ ' + m);
+  const bad = (m) => console.log('❌ ' + m);
+
+  await page.goto();
+  await injectHelpers(page);
+
+  /* 播种复刻用户截图那条：博时基金，已提交（已发生）+ 笔试（日期已过、时间未定、已赴约） */
+  await page.eval(`
+    const s = window.__q.state();
+    const app = {
+      id: 'qaapp-pline-1', company: '博时基金', position: '党建岗和助理岗', status: 'test',
+      channel: '官网', location: '北京', deadline: '', notes: '',
+      createdAt: '2026-10-01', updatedAt: '2026-10-01',
+      timeline: [
+        { id: 'stg-a', status: 'submitted', at: '2026-10-15', done: true },
+        { id: 'stg-b', status: 'test', at: '2026-10-20', done: true },
+        { id: 'stg-c', status: 'interview', at: '2026-10-18', done: false, note: '线上群面，提前 10 分钟进会议' },
+        { id: 'stg-d', status: 'interview', at: '2026-10-25', time: '14:00', place: '金融街支行 12 层', done: false },
+      ],
+    };
+    localStorage.setItem(window.__q.cacheKey(), JSON.stringify({ ...s, applications: [app], skin: 'paper', theme: 'light' }));
+    /* 首屏渲染提示另存一份（qz.skin）：只改整站 state 的话，登录页会先用默认的极光夜 */
+    localStorage.setItem('qz.skin', 'paper');
+    return 1;
+  `);
+  await page.goto();
+  await injectHelpers(page);
+  if (!await page.waitFor(`(() => { const s = window.__q.state(); return (s.applications || []).length === 1; })()`, 8000)) {
+    bad('播种没生效（store 未水合），后续跳过');
+    return;
+  }
+
+  await page.eval(`return window.__q.click('.nav__item', '求职进程');`);
+  await sleep(700);
+  await page.eval(`return window.__q.click('.tabbar__btn', '投递记录');`);
+  await sleep(700);
+  await page.eval(`return window.__q.set('.search input', '博时');`);
+  /* 搜索结果要等一轮水合 + 一次重渲染：固定 sleep 会偶发读到 0 行（重跑又好），
+     那是「等时间」而不是「等状态」，必须改成轮询。 */
+  let hit = false;
+  for (let i = 0; i < 25 && !hit; i++) {
+    await sleep(200);
+    hit = await page.eval(`return document.querySelectorAll('.approw').length > 0;`);
+  }
+  const probe = await page.eval(`
+    return {
+      inputs: [...document.querySelectorAll('.search input')].map((i) => i.value),
+      rows: document.querySelectorAll('.approw').length,
+      head: (document.querySelector('.section-head__t') || {}).textContent || '',
+    };
+  `);
+  console.log('搜索态:', JSON.stringify(probe));
+  const opened = await page.eval(`const r = document.querySelector('.approw'); if (!r) return 'NO_ROW'; r.click(); return 'OK';`);
+  if (opened !== 'OK') { bad('没找到投递记录行，跳过'); return; }
+  await sleep(700);
+  const tabbed = await page.eval(`return window.__q.click('.segmented__btn', '进度线');`);
+  if (tabbed !== 'OK') bad('切不到进度线：' + tabbed);
+  await sleep(600);
+
+  /* 一次求值取全几何量 */
+  const geo = await page.eval(`
+    const r = (el) => { const b = el.getBoundingClientRect(); return { x: Math.round(b.x), y: Math.round(b.y), w: Math.round(b.width), h: Math.round(b.height) }; };
+    const nodes = [...document.querySelectorAll('.pline__node')].map((n) => {
+      const box = n.querySelector('.pline__box');
+      const row = n.querySelector('.pline__row');
+      const cells = [...row.querySelectorAll('.pline__cell, .pline__done, .pline__del')].map((c) => ({
+        cls: c.className.replace(/\\s+/g, '.'), ...r(c),
+      }));
+      /* 第一行里相邻控件之间的空隙：>40px 就说明中间在「漏气」 */
+      const sorted = cells.slice().sort((a, b) => a.x - b.x);
+      const gaps = [];
+      for (let i = 1; i < sorted.length; i++) {
+        const g = sorted[i].x - (sorted[i - 1].x + sorted[i - 1].w);
+        gaps.push({ after: sorted[i - 1].cls, px: Math.round(g) });
+      }
+      return { h: r(box).h, w: r(box).w, cells, gaps };
+    });
+    return { nodes, modal: r(document.querySelector('.modal')).w };
+  `);
+  console.log('几何:', JSON.stringify(geo, null, 0).slice(0, 1200));
+
+  /* 「对齐」是这一页最容易被改坏、也最容易被肉眼漏掉的东西：
+     勾选框与删除图标必须落在跨卡的同一条竖线上 —— 只要有一张卡因为少了时间列而错位，
+     整页看起来就「散架」（这正是 2026-10-21 那轮返工的原因）。 */
+  const xOf = (n, cls) => (n.cells.find((c) => c.cls.includes(cls)) || {}).x;
+  const doneXs = geo.nodes.map((n) => xOf(n, 'pline__done'));
+  const delXs = geo.nodes.map((n) => xOf(n, 'pline__del'));
+  if (new Set(doneXs).size === 1) ok(`勾选框跨 ${doneXs.length} 张卡对齐于 x=${doneXs[0]}`);
+  else bad(`勾选框没对齐：${doneXs.join(' / ')}`);
+  if (new Set(delXs).size === 1) ok(`删除图标跨 ${delXs.length} 张卡对齐于 x=${delXs[0]}`);
+  else bad(`删除图标没对齐：${delXs.join(' / ')}`);
+  await page.shot('pline-1440');
+
+  const send = (m, p) => page.cdp.send(m, p, page.sid);
+  /* 中间档：820px 断点以下撤掉引导线、控件改弹性宽度 —— 这里最容易出现「控件被裁」 */
+  await send('Emulation.setDeviceMetricsOverride', { width: 780, height: 900, deviceScaleFactor: 1, mobile: false });
+  await sleep(500);
+  const mid = await page.eval(`
+    const m = document.querySelector('.modal');
+    const boxes = [...document.querySelectorAll('.pline__row:not(.pline__row--sub)')].map((r) => {
+      const last = r.querySelector('.pline__del');
+      return { rowW: Math.round(r.getBoundingClientRect().width), delX: Math.round(last.getBoundingClientRect().right) };
+    });
+    return { modalW: Math.round(m.getBoundingClientRect().width), overflow: m.scrollWidth - m.clientWidth, boxes };
+  `);
+  console.log('780px:', JSON.stringify(mid));
+  if (mid.overflow > 1) bad(`780px 下弹窗横向溢出 ${mid.overflow}px`); else ok('780px 无横向溢出');
+  await page.shot('pline-780');
+
+  /* 窄屏复查：两列排布，卡片不该横向溢出 */
+  await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
+  await sleep(500);
+  const narrow = await page.eval(`
+    const m = document.querySelector('.modal');
+    return { modalW: Math.round(m.getBoundingClientRect().width), scrollW: m.scrollWidth, clientW: m.clientWidth };
+  `);
+  console.log('窄屏:', JSON.stringify(narrow));
+  if (narrow.scrollW > narrow.clientW + 1) bad(`390px 下弹窗横向溢出 ${narrow.scrollW - narrow.clientW}px`);
+  else ok('390px 无横向溢出');
+  await page.shot('pline-390');
+}
+
+/* 场景：日历只装笔试 / 面试 / Offer。
+   对应用户口径「日历和待办应该只呈现笔面试的」（2026-10-21）。
+   这一版笔面日程的唯一真源是投递记录的进度线（lib/appTimeline.ts），日历只是投影，
+   所以这里同时验两件事：
+   ① 截止与待办**即使存在**也画不进月格 / 近期安排，但数据不能少（各自还在自己的卡里）；
+   ② 进度线里填的笔试面试能被投影出来 —— 否则「只显示笔面试」会退化成「什么都不显示」。 */
 async function scenarioCalv(page) {
   const ok = (m) => console.log('✅ ' + m);
   const bad = (m) => console.log('❌ ' + m);
 
   await page.goto();
   await injectHelpers(page);
-  /* 播种：1 条截止事件 + 1 条待办 + 笔试/面试各一，另有一条带 deadline 的投递记录 */
-  await page.eval(`
+
+  const seeded = await page.eval(`
     const s = window.__q.state();
-    const ev = [
-      { id: 'qa-ev-dl', title: '中金网申截止', date: '2026-10-24', type: 'deadline', source: 'manual' },
-      { id: 'qa-ev-todo', title: '整理网申材料', date: '2026-10-22', type: 'todo', source: 'manual' },
-      { id: 'qa-ev-test', title: '中国银行笔试', date: '2026-10-24', time: '09:00', type: 'test', source: 'manual' },
-      { id: 'qa-ev-int', title: '博时基金一面', date: '2026-10-26', time: '14:00', type: 'interview', source: 'manual' },
+    const d0 = new Date();
+    const pad = (x) => String(x).padStart(2, '0');
+    const iso = (n) => {
+      const d = new Date(d0.getFullYear(), d0.getMonth(), d0.getDate() + n);
+      return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+    };
+    /* 三类「不该进格子」的东西都放一份：手工截止事件、手工待办、投递记录的截止日期 */
+    const events = [
+      { id: 'qa-ev-deadline', title: '截止·中行网申', date: iso(3), time: '', type: 'deadline', source: 'manual' },
+      { id: 'qa-ev-todo', title: '打印成绩单', date: iso(4), time: '', type: 'todo', source: 'manual', done: false },
+      { id: 'qa-ev-manual', title: '国开行一面', date: iso(6), time: '09:30', type: 'interview', source: 'manual' },
     ];
     const app = {
-      id: 'qa-app-dl', company: '中金公司', position: '法务', status: 'filling',
-      deadline: '2026-10-30', createdAt: '2026-10-01', updatedAt: '2026-10-01', timeline: [],
+      id: 'qaapp-calv-1', company: '博时基金', position: '党建岗', status: 'test',
+      channel: '官网', location: '北京', deadline: iso(5), notes: '',
+      createdAt: iso(-10), updatedAt: iso(-1),
+      timeline: [
+        { id: 'stg-t', status: 'test', at: iso(2), time: '19:00', done: false, place: '线上机考' },
+        { id: 'stg-i', status: 'interview', at: iso(8), time: '14:00', done: false },
+      ],
     };
-    localStorage.setItem(window.__q.cacheKey(), JSON.stringify({ ...s, events: ev, applications: [app], skin: 'paper', theme: 'light' }));
-    /* 皮肤首屏就要用，整站 state 之外另存一份提示（否则会先闪一下默认的极光夜） */
-    localStorage.setItem('qz.skin', 'paper');
-    return 1;
+    localStorage.setItem(window.__q.cacheKey(), JSON.stringify({ ...s, events, applications: [app] }));
+    return { testDay: iso(2), appDeadline: iso(5) };
   `);
-  /* 播种后必须 reload：否则 store 的持久化 effect 会把内存里的旧状态写回同一个键 */
+  console.log('播种:', JSON.stringify(seeded));
+
   await page.goto();
   await injectHelpers(page);
-  if (!await page.waitFor(`(() => { const s = window.__q.state(); return (s.events || []).length === 4; })()`, 8000)) {
+  if (!await page.waitFor(`(() => { const s = window.__q.state(); return (s.applications || []).length === 1 && (s.events || []).length === 3; })()`, 8000)) {
     bad('播种没生效（store 未水合），后续跳过');
     return;
   }
 
   await page.eval(`return window.__q.click('.nav__item', '日程');`);
-  if (!await page.waitFor(`!!document.querySelector('.cal')`, 8000)) { bad('日历没渲染'); return; }
-  /* 等格子里的 chip 真画出来再读：切页 + 水合 + 一次重渲染之间读会读到 0 条，
-     那条「一条事件都没画」的告警就会变成假红（实测踩过一次）。 */
-  await page.waitFor(`document.querySelectorAll('.cal__cell .cal__ev').length > 0`, 6000);
-  await sleep(400);
+  /* 网格 42 格 + 三处投影要等一轮水合：固定 sleep 会偶发读到半成品（重跑又好） */
+  await page.waitFor(`document.querySelectorAll('.cal__cell').length >= 42`, 6000);
+  await sleep(500);
 
-  const r = await page.eval(`
-    const cells = [...document.querySelectorAll('.cal__cell')];
-    const chips = cells.flatMap((c) => [...c.querySelectorAll('.cal__ev')]);
-    const byTitle = (t) => [...document.querySelectorAll('.card')].find((c) => (c.innerText || '').includes(t)) || null;
-    const up = byTitle('近期安排');
-    const upChips = up ? [...up.querySelectorAll('.cal__ev')] : [];
-    const dlCount = (arr) => arr.filter((e) => e.classList.contains('ev-deadline')).length;
-    const todoCount = (arr) => arr.filter((e) => e.classList.contains('ev-todo')).length;
+  const probe = await page.eval(`
+    const cls = (el) => String(el.className || '');
+    const chips = [...document.querySelectorAll('.cal__cell .cal__ev')].map((e) => ({ cls: cls(e), t: e.textContent.trim() }));
+    const card = (needle) => [...document.querySelectorAll('.card')].find((c) => {
+      const t = c.querySelector('.card__title');
+      return t && t.textContent.replace(/\\s+/g, '').includes(needle);
+    }) || null;
+    const up = card('近期安排');
+    const monthCard = [...document.querySelectorAll('.card')].find((c) => c.querySelector('.cal__cell')) || null;
     return {
-      cells: cells.length,
-      chips: chips.length,
-      cellDeadline: dlCount(chips),
-      cellTodo: todoCount(chips),
-      upChips: upChips.length,
-      upDeadline: dlCount(upChips),
-      upTodo: todoCount(upChips),
-      hasUpCard: !!up,
-      hasDeadlineCard: !!byTitle('投递截止提醒'),
-      hasTodoCard: !!byTitle('待办清单'),
+      cells: document.querySelectorAll('.cal__cell').length,
+      chips,
+      deadlines: chips.filter((c) => c.cls.includes('ev-deadline')).length,
+      todos: chips.filter((c) => c.cls.includes('ev-todo')).length,
+      tests: chips.filter((c) => c.cls.includes('ev-test')).length,
+      interviews: chips.filter((c) => c.cls.includes('ev-interview')).length,
+      upChips: up ? [...up.querySelectorAll('.cal__ev')].map(cls) : ['NO_CARD'],
+      upText: up ? up.innerText.replace(/\\s+/g, ' ').slice(0, 200) : 'NO_CARD',
+      todoText: (card('待办清单') || { innerText: 'NO_CARD' }).innerText.replace(/\\s+/g, ' ').slice(0, 140),
+      dlText: (card('投递截止提醒') || { innerText: 'NO_CARD' }).innerText.replace(/\\s+/g, ' ').slice(0, 140),
+      subtitle: (document.querySelector('.section-head__d') || {}).textContent || '',
+      legend: monthCard ? [...monthCard.querySelectorAll('.row.gap-12 .cal__ev')].map((e) => e.textContent.trim()) : [],
     };
   `);
-  console.log('日历口径:', JSON.stringify(r));
+  console.log('日历态:', JSON.stringify({
+    cells: probe.cells, deadlines: probe.deadlines, todos: probe.todos,
+    tests: probe.tests, interviews: probe.interviews, legend: probe.legend,
+  }));
+  console.log('近期安排:', probe.upText);
+  console.log('待办卡:', probe.todoText);
+  console.log('截止卡:', probe.dlText);
 
-  if (r.chips === 0) bad('月视图一条事件都没画（播种的笔面没渲染，断言无意义）');
-  else ok(`月视图画了 ${r.chips} 条事件`);
-  if (r.cellDeadline === 0) ok('月视图无「截止」');
-  else bad(`月视图里还有 ${r.cellDeadline} 条截止事件`);
-  if (r.cellTodo === 0) ok('月视图无「待办」');
-  else bad(`月视图里还有 ${r.cellTodo} 条待办事件`);
-  if (r.upDeadline === 0) ok('近期安排无「截止」');
-  else bad(`近期安排里还有 ${r.upDeadline} 条截止`);
-  if (r.upTodo === 0) ok('近期安排无「待办」');
-  else bad(`近期安排里还有 ${r.upTodo} 条待办`);
-  if (r.hasDeadlineCard) ok('「投递截止提醒」卡仍在（截止不进日历但仍可看）');
-  else console.log('· 没有「投递截止提醒」卡（可能播种的投递记录没被识别）');
+  if (probe.cells >= 42) ok(`月视图 ${probe.cells} 格已渲染`);
+  else bad(`月视图没渲染出来（${probe.cells} 格）`);
+
+  /* ① 不该出现的两类 */
+  if (probe.deadlines === 0) ok('月视图 0 个截止标记（截止不进格子）');
+  else bad(`月视图混进 ${probe.deadlines} 个截止标记`);
+  if (probe.todos === 0) ok('月视图 0 个待办标记（待办不进格子）');
+  else bad(`月视图混进 ${probe.todos} 个待办标记`);
+  const upBad = probe.upChips.filter((c) => c.includes('ev-deadline') || c.includes('ev-todo'));
+  if (upBad.length === 0) ok('近期安排里也只有笔/面/Offer');
+  else bad(`近期安排混进 ${upBad.length} 条截止/待办：${upBad.join(',')}`);
+  if (!/截止/.test(probe.upText)) ok('近期安排文案无「截止」字样');
+  else bad(`近期安排出现「截止」条目：${probe.upText.slice(0, 80)}`);
+
+  /* ② 该出现的：进度线投影 + 手工面试 */
+  if (probe.tests >= 1) ok(`进度线里的笔试已投影到日历（${probe.tests} 个）`);
+  else bad('进度线里的笔试没有出现在日历上（投影断了）');
+  if (probe.interviews >= 1) ok(`面试已进日历（${probe.interviews} 个）`);
+  else bad('面试没有出现在日历上');
+
+  /* ③ 数据一条不丢：截止回投递截止提醒卡，待办回待办清单 */
+  if (/博时基金/.test(probe.dlText)) ok('投递截止提醒卡仍列出博时基金的截止（数据没丢，只是不画格子）');
+  else bad(`投递截止提醒卡没读到截止记录：${probe.dlText.slice(0, 80)}`);
+  if (/打印成绩单/.test(probe.todoText)) ok('待办清单卡仍有「打印成绩单」');
+  else bad(`待办清单卡丢了待办：${probe.todoText.slice(0, 80)}`);
+
+  /* ④ 口径文案与图例：图例只列三类，否则等于替旧口径站台 */
+  if (/只放笔试/.test(probe.subtitle)) ok('页头副标题写明了「只放笔试 / 面试 / Offer」');
+  else bad(`页头副标题没写清口径：${probe.subtitle}`);
+  const legendOk = probe.legend.length === 3 && !probe.legend.some((t) => /截止|待办|事项/.test(t));
+  if (legendOk) ok(`图例只有三类：${probe.legend.join(' / ')}`);
+  else bad(`图例不对：${JSON.stringify(probe.legend)}`);
 
   await page.shot('calv-1440');
+
+  /* ⑤ 点投影出来的那条笔试：弹窗必须承认自己是进度线节点，删除要写回投递记录 */
+  const clicked = await page.eval(`
+    const el = [...document.querySelectorAll('.cal__cell .cal__ev')].find((e) => /笔试/.test(e.textContent));
+    if (!el) return 'NO_CHIP';
+    el.click(); return 'OK';
+  `);
+  if (clicked !== 'OK') bad('没点到笔试标记：' + clicked);
+  await sleep(600);
+  const modal = await page.eval(`
+    const m = document.querySelector('.modal');
+    if (!m) return { open: false };
+    return {
+      open: true,
+      title: (m.querySelector('.modal__title') || {}).textContent || '',
+      btns: [...m.querySelectorAll('button')].map((b) => b.textContent.replace(/\\s+/g, '')).filter(Boolean),
+      types: [...m.querySelectorAll('.badge')].map((b) => b.textContent.trim()).filter(Boolean),
+      hint: /进度线/.test(m.innerText),
+    };
+  `);
+  console.log('弹窗:', JSON.stringify(modal));
+  if (modal.open && /笔面试节点/.test(modal.title)) ok('投影事件打开的是「编辑笔面试节点」');
+  else bad(`投影事件弹窗标题不对：${modal.title}`);
+  if (modal.btns.some((t) => /从进度线删除/.test(t))) ok('删除按钮写明「从进度线删除」（删的是投递记录里的节点，不是日历副本）');
+  else bad(`删除按钮文案不对：${JSON.stringify(modal.btns)}`);
+  const typesOk = modal.types.length === 3 && !modal.types.some((t) => /截止|待办/.test(t));
+  if (typesOk) ok(`弹窗类型只给三类：${modal.types.join(' / ')}`);
+  else bad(`弹窗类型不对：${JSON.stringify(modal.types)}`);
+  await page.eval(`const b = [...document.querySelectorAll('.modal button')].find((x) => /取消/.test(x.textContent)); if (b) b.click(); return 'ok';`);
+  await sleep(400);
+
+  /* ⑥ 窄屏：右栏 320px 必须收起，不能把月格挤出屏幕 */
   const send = (m, p) => page.cdp.send(m, p, page.sid);
   await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
   await sleep(600);
+  const narrow = await page.eval(`
+    const wrap = document.querySelector('.cal-wrap');
+    return {
+      vw: window.innerWidth,
+      wrapW: wrap ? Math.round(wrap.getBoundingClientRect().width) : -1,
+      docOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      cols: wrap ? getComputedStyle(wrap).gridTemplateColumns : '',
+      chips: document.querySelectorAll('.cal__cell .cal__ev').length,
+    };
+  `);
+  console.log('390px:', JSON.stringify(narrow));
+  if (narrow.docOverflow <= 1) ok('390px 无横向溢出');
+  else bad(`390px 横向溢出 ${narrow.docOverflow}px`);
+  /* 单列时 gridTemplateColumns 只剩一轨；仍是 '1fr 320px' 就说明断点没生效 */
+  if (narrow.cols && narrow.cols.trim().split(/\s+/).length === 1) ok('390px 右栏已收起成单列');
+  else bad(`390px 右栏没收起：${narrow.cols}`);
+  if (narrow.chips >= 1) ok('390px 下笔面标记仍在');
+  else bad('390px 下月格里的标记全没了');
   await page.shot('calv-390');
+
+  console.log('日历口径巡检完成（只装笔试/面试/Offer）');
 }
 
 async function scenarioAppCat(page) {
@@ -4723,6 +4941,7 @@ try {
   if (scenario === 'stacklock') { await scenarioStackLock(page); }
   if (scenario === 'perf') { await scenarioPerf(page); }
   if (scenario === 'appcat') { page.reset(); await scenarioAppCat(page); }
+  if (scenario === 'pline') { page.reset(); await scenarioPline(page); }
   if (scenario === 'calv') { page.reset(); await scenarioCalv(page); }
   if (scenario === 'mailsend') { page.reset(); await scenarioMailSend(page); }
   result = { errors: page.errors };

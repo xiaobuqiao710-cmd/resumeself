@@ -59,7 +59,8 @@ export function AgentPanel({ fullPage = false, docked = false, floating = false,
   const taRef = useRef<HTMLTextAreaElement>(null);
 
   const host: AgentHost = {
-    jobs: store.jobs, applications: store.applications, events: store.events,
+    /* allEvents：让 AI 也看到从投递进度线派生的笔试/面试日程 */
+    jobs: store.jobs, applications: store.applications, events: store.allEvents,
     profile: store.profile, questions: store.questions, banks: store.banks,
     bankCategories: store.bankCategories, interviews: store.interviews, offers: store.offers,
     materials: store.materials, contacts: store.contacts,

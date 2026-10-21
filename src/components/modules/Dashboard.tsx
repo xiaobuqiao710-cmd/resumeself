@@ -30,7 +30,7 @@ const EVENT_LABEL: Record<EventType, string> = {
  */
 export default function Dashboard({ mail, onNav }:
   { mail: { online: boolean; unread: number; account: MailAccount | null }; onNav: (v: any) => void }) {
-  const { profile, applications, events, jobs, questions } = useStore();
+  const { profile, applications, allEvents, jobs, questions } = useStore();
   const personal = profile.single.personal || {};
   const bgLine = [personal.school, personal.major, personal.highestEdu].filter(Boolean).join(' · ');
   const today = todayISO();
@@ -78,13 +78,13 @@ export default function Dashboard({ mail, onNav }:
         const dl = deadlineLabel(j.deadline);
         rows.push({ key: 'j' + j.id, date: j.deadline!, title: `${j.company} · ${j.title}`, kind: '岗位截止', badge: { text: dl.text, cls: dl.cls }, days: daysUntil(j.deadline) });
       });
-    events
+    allEvents
       .filter((e) => e.date >= today && e.type !== 'deadline')
       .forEach((e) => rows.push({ key: 'e' + e.id, date: e.date, time: e.time, title: e.title, kind: EVENT_LABEL[e.type], days: daysUntil(e.date) }));
     return rows
       .sort((x, y) => x.date.localeCompare(y.date) || (x.time || '').localeCompare(y.time || ''))
       .slice(0, 7);
-  }, [applications, jobs, events, today]);
+  }, [applications, jobs, allEvents, today]);
 
   const statusDist = STATUS_ORDER.map((s) => ({ s, n: applications.filter((a) => a.status === s).length }))
     .filter((x) => x.n > 0);

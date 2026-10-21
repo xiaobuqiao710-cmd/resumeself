@@ -4,6 +4,7 @@ import type { CalEvent, EventType } from '../../types';
 import { Icon } from '../ui/Icon';
 import { Button, Badge, Modal, Empty } from '../ui/Kit';
 import { cn, uid, toISO, fromISO, todayISO, fmtDate, deadlineLabel } from '../../lib/util';
+import { parseStageEventId, isStageEventId } from '../../lib/appTimeline';
 
 const DOW = ['一', '二', '三', '四', '五', '六', '日'];
 const TYPE_META: Record<EventType, { label: string; cls: string }> = {
@@ -39,7 +40,9 @@ function monthMatrix(year: number, month: number) {
 const emptyEvent = (date: string): Partial<CalEvent> => ({ title: '', date, time: '', type: 'interview', note: '', source: 'manual' });
 
 export default function Calendar() {
-  const { events, applications, addEvent, updateEvent, removeEvent, toast } = useStore();
+  /* allEvents 而不是 events：v7 起笔试/面试/Offer 日程的唯一真源是投递记录的进度线，
+     日历只是它的投影（见 lib/appTimeline.ts）。只读 events 就看不到在投递记录里填的面试时间。 */
+  const { allEvents, applications, addEvent, updateEvent, removeEvent, updateStage, removeStage, toast } = useStore();
   const today = new Date();
   const [cursor, setCursor] = useState({ y: today.getFullYear(), m: today.getMonth() });
   const [selected, setSelected] = useState<string | null>(null);
@@ -47,21 +50,21 @@ export default function Calendar() {
   const [creating, setCreating] = useState<Partial<CalEvent> | null>(null);
 
   const cells = useMemo(() => monthMatrix(cursor.y, cursor.m), [cursor]);
-  /* 只把笔/面/Offer 装进日历（见 isCalEvent）。byDate 是全站唯一给格子与选中日供数的地方，
-     在这里过滤一次，月视图、选中日详情、+N 计数就都不会漏进截止与待办。 */
+  /* 只把笔/面/Offer 装进日历（见 isCalEvent）。byDate 是格子与选中日详情的唯一供数口，
+     在这里过滤一次，月视图、选中日、+N 计数都不会漏进截止与待办。 */
   const byDate = useMemo(() => {
     const map: Record<string, CalEvent[]> = {};
-    events.filter(isCalEvent).forEach((e) => { (map[e.date] ||= []).push(e); });
+    allEvents.filter(isCalEvent).forEach((e) => { (map[e.date] ||= []).push(e); });
     Object.values(map).forEach((arr) => arr.sort((a, b) => (a.time || '99').localeCompare(b.time || '99')));
     return map;
-  }, [events]);
+  }, [allEvents]);
 
   const upcoming = useMemo(() => {
     const t = todayISO();
-    return [...events].filter((e) => e.date >= t && isCalEvent(e))
+    return [...allEvents].filter((e) => e.date >= t && isCalEvent(e))
       .sort((a, b) => a.date.localeCompare(b.date) || (a.time || '').localeCompare(b.time || ''))
       .slice(0, 12);
-  }, [events]);
+  }, [allEvents]);
 
   const deadlines = useMemo(() => {
     const t = todayISO();
@@ -75,10 +78,10 @@ export default function Calendar() {
   const monthLabel = `${cursor.y} 年 ${cursor.m + 1} 月`;
   const selectedEvents = selected ? byDate[selected] || [] : [];
 
-  /* 笔试 / 面试撞车检测：同一天两场以上，或同日同一时刻 */
+  /* 笔试 / 面试撞车检测：同一天两场以上，或同日同一时刻（用 allEvents：进度线里的笔面也要算） */
   const conflicts = useMemo(() => {
     const byDay = new Map<string, CalEvent[]>();
-    for (const e of events) {
+    for (const e of allEvents) {
       if (e.done || (e.type !== 'test' && e.type !== 'interview')) continue;
       byDay.set(e.date, [...(byDay.get(e.date) || []), e]);
     }
@@ -90,7 +93,7 @@ export default function Calendar() {
     });
     const today = todayISO();
     return out.filter((c) => c.date >= today).sort((a, b) => a.date.localeCompare(b.date));
-  }, [events]);
+  }, [allEvents]);
 
   return (
     <div className="rise">
@@ -242,8 +245,30 @@ export default function Calendar() {
       )}
       {editing && (
         <EventModal data={editing} onClose={() => setEditing(null)}
-          onSave={(e) => { updateEvent(editing.id, e); setEditing(null); toast('已更新事件'); }}
-          onDelete={() => { removeEvent(editing.id); setEditing(null); toast('已删除事件', 'info'); }} />
+          derived={isStageEventId(editing.id)}
+          /* 派生事件（id 形如 stage:app:entry）不是 events 里的一条，而是投递记录进度线节点的投影：
+             在这里改时间/地点必须写回进度线，否则日历上改了、投递记录里没变，
+             下次投影又把它盖回来 —— 这正是「两边各存一份」时代最烦的那种不同步。 */
+          onSave={(e) => {
+            const parsed = parseStageEventId(editing.id);
+            if (parsed) {
+              updateStage(parsed.appId, parsed.entryId, {
+                at: e.date || editing.date,
+                time: e.time, place: e.place, note: e.note,
+              });
+              toast('已写回投递记录的进度线');
+            } else {
+              updateEvent(editing.id, e);
+              toast('已更新事件');
+            }
+            setEditing(null);
+          }}
+          onDelete={() => {
+            const parsed = parseStageEventId(editing.id);
+            if (parsed) { removeStage(parsed.appId, parsed.entryId); toast('已从投递进度线删除该节点', 'info'); }
+            else { removeEvent(editing.id); toast('已删除事件', 'info'); }
+            setEditing(null);
+          }} />
       )}
     </div>
   );
@@ -295,21 +320,26 @@ function TodoCard() {
   );
 }
 
-function EventModal({ data, onClose, onSave, onDelete }:
-  { data: Partial<CalEvent>; onClose: () => void; onSave: (e: Partial<CalEvent>) => void; onDelete?: () => void }) {
+function EventModal({ data, onClose, onSave, onDelete, derived }:
+  { data: Partial<CalEvent>; onClose: () => void; onSave: (e: Partial<CalEvent>) => void; onDelete?: () => void; derived?: boolean }) {
   const [form, setForm] = useState<Partial<CalEvent>>(data);
   const set = (k: keyof CalEvent, v: any) => setForm((f) => ({ ...f, [k]: v }));
   return (
-    <Modal open onClose={onClose} icon="calendar" title={data.id ? '编辑事件' : '新增事件'}
+    <Modal open onClose={onClose} icon="calendar" title={data.id ? (derived ? '编辑笔面试节点' : '编辑事件') : '新增事件'}
       footer={<>
-        {onDelete && <Button variant="danger" icon="trash" onClick={onDelete}>删除</Button>}
+        {onDelete && <Button variant="danger" icon="trash" onClick={onDelete}>{derived ? '从进度线删除' : '删除'}</Button>}
         <span className="grow" />
         <Button onClick={onClose}>取消</Button>
         <Button variant="primary" icon="check" onClick={() => { if (!form.title?.trim()) return onSave({ ...form, title: '未命名事件' }); onSave(form); }}>保存</Button>
       </>}>
       <div className="grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
+        {derived && (
+          <div className="tx-4" style={{ gridColumn: '1 / -1', fontSize: 11.5, marginBottom: -4 }}>
+            这条来自投递记录的进度线，标题由记录决定，改时间 / 地点会写回那条记录。
+          </div>
+        )}
         <div className="field" style={{ gridColumn: '1 / -1' }}><label className="field__label">事件标题</label>
-          <input className="input" value={form.title || ''} placeholder="如 中金法务岗网申截止 / 君合一面" onChange={(e) => set('title', e.target.value)} /></div>
+          <input className="input" value={form.title || ''} placeholder="如 君合一面 / 中行笔试" onChange={(e) => set('title', e.target.value)} /></div>
         <div className="field"><label className="field__label">日期</label>
           <input className="input" type="date" value={form.date || ''} onChange={(e) => set('date', e.target.value)} /></div>
         <div className="field"><label className="field__label">时间</label>
