@@ -74,12 +74,23 @@
 
 /* ---------------- 布局：月视图 + 右栏 ---------------- */
 .calv-body {
-  display: grid; grid-template-columns: minmax(0, 1fr) 320px;
+  display: grid; grid-template-columns: minmax(0, 1fr) 284px;
   gap: 22px; align-items: start;
 }
 .calv-main { min-width: 0; }
 .calv-side { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .calv-side > .dash-sect { min-width: 0; }
+
+/* ---------------- 图例（在月视图上方） ---------------- */
+.calv-legend {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px;
+  padding: 0 0 9px;
+}
+.calv-legend__i {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; font-weight: 600; color: var(--tx-3);
+}
+.calv-legend__hint { margin-left: auto; font-size: 10.5px; color: var(--tx-4); }
 
 /* ---------------- 月视图 ---------------- */
 .calv-grid { border-top: 1px solid var(--glass-brd-strong); }
@@ -117,18 +128,33 @@
 .calv-cell--sel { background: var(--accent-grad-soft); box-shadow: inset 0 0 0 1px var(--accent-ring); }
 .calv-cell--sel:hover { background: var(--accent-grad-soft); }
 
-/* 格内事件条：单行、不换行、类型靠左侧 2px 色线区分（沿用 .ev-* 的语义色） */
+/* 格内事件条。
+   两段信息的优先级：**类型**（面试/笔试/Offer/待办）> 标题 > 时间。
+   桌面格宽约 130px，只够一件事：所以左边固定一块 15px 的类型缩写色块，
+   先保证「一眼看出这天是面试还是笔试」，标题截断也不影响这个判断；
+   时间放在标题前缀、等宽数字，能挤得下就显示。 */
 .calv-ev {
   display: flex; align-items: center; gap: 4px; min-width: 0;
-  height: 19px; padding: 0 5px; border-radius: 4px;
+  height: 19px; padding: 0 5px 0 3px; border-radius: 4px;
   font-size: 10.5px; font-weight: 620; line-height: 19px;
   overflow: hidden; white-space: nowrap;
-  border-left: 2px solid transparent;
 }
-.calv-ev__t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.calv-ev__k {
+  flex: none; display: inline-grid; place-items: center;
+  width: 15px; height: 15px; border-radius: 3px;
+  font-size: 9px; font-weight: 760; letter-spacing: 0;
+}
+.calv-ev__t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .calv-ev__time {
-  flex: none; font-weight: 700; font-variant-numeric: tabular-nums; opacity: .85;
+  flex: none; font-weight: 700; font-variant-numeric: tabular-nums; opacity: .9;
 }
+/* 类型缩写色块：底色取该类型的语义色，文字用深色保证在亮色块上仍可读 */
+.calv-ev__k.ev-interview { background: var(--accent-1); color: #062032; }
+.calv-ev__k.ev-test { background: var(--warn); color: #2a1c02; }
+.calv-ev__k.ev-offer { background: var(--accent-2); color: #17102e; }
+.calv-ev__k.ev-todo { background: var(--ok); color: #04231a; }
+.calv-ev__k.ev-other { background: var(--accent-3); color: #2b0718; }
+.calv-ev__k.ev-deadline { background: var(--danger); color: #2b0a12; }
 .calv-more { padding-left: 2px; font-size: 10px; font-weight: 620; color: var(--tx-4); }
 
 /* 窄屏（≤560px）：七列保持，但每格只留日期 + 一个事件数点。
@@ -202,6 +228,10 @@
 }
 .calv-item__done:hover { color: var(--accent-1); border-color: var(--accent-ring); }
 .calv-item--passed { border-left: 2px solid var(--danger); padding-left: 8px; }
+.calv-item__ok {
+  flex: none; display: grid; place-items: center; width: 18px; height: 18px; border-radius: 50%;
+  color: var(--ok); background: rgba(52,211,153,.12);
+}
 
 /* ---------------- 右栏：待办 ---------------- */
 .calv-todo__add { display: flex; gap: 7px; margin-bottom: 10px; }
@@ -211,13 +241,16 @@
 
 /* ---------------- 窄屏 ---------------- */
 @media (max-width: 1080px) {
-  .calv-body { grid-template-columns: minmax(0, 1fr) 300px; gap: 18px; }
+  .calv-body { grid-template-columns: minmax(0, 1fr) 272px; gap: 18px; }
 }
 
 @media (max-width: 900px) {
   /* 单栏：先把「接下来要做的」提到月视图之前（手机上先看今天要做什么，再看整月） */
   .calv-body { grid-template-columns: minmax(0, 1fr); gap: 18px; }
   .calv-side { order: -1; }
+  /* 手机上「接下来要做的」浮在月视图前面，给它一层卡面，否则会和标题连成一片 */
+  .calv-side > .dash-sect { padding: 12px 13px; border-radius: var(--r-md); border: 1px solid var(--glass-brd); background: var(--glass-bg); }
+  .calv-legend__hint { display: none; }
   .calv-cell { min-height: 78px; padding: 5px 5px 6px; }
   .calv-ev { font-size: 9.5px; height: 17px; line-height: 17px; padding: 0 3px; }
 }
@@ -228,17 +261,23 @@
   .calv-head__acts { width: 100%; }
   .calv-head__acts .btn { flex: 1; justify-content: center; }
 
-  .calv-cell { min-height: 44px; padding: 4px 3px; align-items: center; gap: 2px; }
+  .calv-cell { min-height: 46px; padding: 4px 3px; align-items: center; gap: 2px; }
   .calv-cell__num { font-size: 11.5px; line-height: 18px; }
+  /* 手机：不显示事件标题，只显示当日第一个事件的「类型缩写色块」+ 其余事件的圆点，
+     这样「哪天有面试」不用点开也能判读；完整标题在下方「选中日详情」里。 */
+  .calv-cell__dots { justify-content: center; }
+  .calv-cell__dots i { width: 5px; height: 5px; }
   .calv-cell--today .calv-cell__num { width: 18px; height: 18px; }
   .calv-dow > span { text-align: center; font-size: 9.5px; padding: 6px 0; }
 
-  /* 事件条退成「按类型分色的计数点」，标题在点开当日详情后看 */
+  /* 桌面的两行事件条在手机上放不下：退成「第一个事件的类型缩写块 + 其余圆点」，
+     完整标题在下方「选中日详情」里看。 */
   .calv-ev { display: none; }
   .calv-more { display: none; }
   .calv-cell__dots {
-    display: flex; align-items: center; justify-content: center; gap: 2px; flex-wrap: wrap;
+    display: flex; align-items: center; justify-content: center; gap: 3px; flex-wrap: wrap;
   }
+  .calv-cell__dots .calv-ev__k { width: 14px; height: 14px; font-size: 8.5px; }
   .calv-cell__dots i {
     width: 4px; height: 4px; border-radius: 50%; background: var(--tx-3);
   }

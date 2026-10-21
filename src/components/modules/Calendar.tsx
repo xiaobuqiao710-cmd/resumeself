@@ -30,13 +30,16 @@ import { DeadlineBriefModal } from '../ui/DeadlineBrief';
  */
 
 const DOW = ['一', '二', '三', '四', '五', '六', '日'];
-const TYPE_META: Record<EventType, { label: string; cls: string }> = {
-  deadline: { label: '截止', cls: 'ev-deadline' },
-  interview: { label: '面试', cls: 'ev-interview' },
-  test: { label: '笔试', cls: 'ev-test' },
-  offer: { label: 'Offer', cls: 'ev-offer' },
-  todo: { label: '待办', cls: 'ev-todo' },
-  other: { label: '事项', cls: 'ev-other' },
+/* `k` = 格内单字缩写。桌面上月视图每格只有 ~130px，一行放不下「面试 14:00 某国有银行」，
+   所以先给类型一个固定宽度、带底色的单字块：扫一眼就知道这天是笔试还是面试，
+   标题放不下就截断，但类型判断不受影响。 */
+const TYPE_META: Record<EventType, { label: string; cls: string; k: string }> = {
+  deadline: { label: '截止', cls: 'ev-deadline', k: '截' },
+  interview: { label: '面试', cls: 'ev-interview', k: '面' },
+  test: { label: '笔试', cls: 'ev-test', k: '笔' },
+  offer: { label: 'Offer', cls: 'ev-offer', k: 'O' },
+  todo: { label: '待办', cls: 'ev-todo', k: '待' },
+  other: { label: '事项', cls: 'ev-other', k: '事' },
 };
 
 /* 约定日程类型来自 lib/remind.ts 的唯一真源（提醒条用同一份），此处不再重复定义 */
@@ -275,6 +278,18 @@ export default function Calendar() {
       <div className="calv-body">
         {/* ---- 月视图 ---- */}
         <div className="calv-main">
+          {/* 图例放在月视图上方而不是下方：手机上把月视图滑到眼前时，图例就在旁边，不用再滑回去对照 */}
+          <div className="calv-legend">
+            {Object.entries(TYPE_META)
+              .filter(([k]) => k !== 'deadline')          // 截止不进日历，图例也不列它
+              .map(([k, v]) => (
+                <span key={k} className="calv-legend__i">
+                  <b className={cn('calv-ev__k', v.cls)}>{v.k}</b>
+                  {v.label}
+                </span>
+              ))}
+            <span className="calv-legend__hint">双击日期可新增 · 网申截止不进日历</span>
+          </div>
           <div className="calv-grid">
             <div className="calv-dow">
               {DOW.map((d, i) => <span key={d} className={i >= 5 ? 'is-weekend' : undefined}>{d}</span>)}
@@ -291,34 +306,26 @@ export default function Calendar() {
                     onClick={() => setSelected(iso)} onDoubleClick={() => setCreating(emptyEvent(iso))}>
                     <span className="calv-cell__num">{d.getDate()}</span>
                     {evs.slice(0, 2).map((e) => (
-                      <span key={e.id} className={chipClass(e.type)} title={`${e.time || ''} ${e.title}`}
+                      <span key={e.id} className={chipClass(e.type)} title={`${TYPE_META[e.type].label}${e.time ? ' ' + e.time : ''} ${e.title}`}
                         onClick={(ev) => { ev.stopPropagation(); setEditing(e); }}>
-                        {e.time && <span className="calv-ev__time">{e.time}</span>}
+                        <b className={cn('calv-ev__k', TYPE_META[e.type].cls)}>{TYPE_META[e.type].k}</b>
                         <span className="calv-ev__t">{e.title}</span>
+                        {e.time && <span className="calv-ev__time">{e.time}</span>}
                       </span>
                     ))}
                     {evs.length > 2 && <span className="calv-more">+{evs.length - 2} 项</span>}
                     {evs.length > 0 && (
                       <span className="calv-cell__dots">
-                        {evs.slice(0, 6).map((e) => <i key={e.id} className={TYPE_META[e.type].cls} />)}
+                        {/* 第一个事件显示成类型缩写块（和桌面端同一套字形），其余用圆点；
+                            这样手机上不点开也知道「21 号是面试、22 号是笔试」 */}
+                        <b className={cn('calv-ev__k', TYPE_META[evs[0].type].cls)}>{TYPE_META[evs[0].type].k}</b>
+                        {evs.slice(1, 4).map((e) => <i key={e.id} className={TYPE_META[e.type].cls} />)}
                       </span>
                     )}
                   </div>
                 );
               })}
             </div>
-          </div>
-          <div className="row gap-12 wrap" style={{ marginTop: 12 }}>
-            {Object.entries(TYPE_META)
-              .filter(([k]) => k !== 'deadline')          // 截止不进日历，图例也不该列它
-              .map(([k, v]) => (
-                <span key={k} className="row gap-6" style={{ fontSize: 11, color: 'var(--tx-3)' }}>
-                  <span className={cn('calv-ev', v.cls)} style={{ height: 15, lineHeight: '15px', padding: '0 6px' }}>{v.label}</span>
-                </span>
-              ))}
-            <span className="tx-4" style={{ fontSize: 10.5, marginLeft: 'auto' }}>
-              双击日期可新增事件 · 网申截止不进日历
-            </span>
           </div>
         </div>
 
@@ -353,9 +360,11 @@ export default function Calendar() {
                           {e.place && <span className="truncate" style={{ maxWidth: 110 }}>{e.place}</span>}
                         </span>
                       </span>
-                      {!e.done && (
-                        <button className="calv-item__done" onClick={(ev) => { ev.stopPropagation(); markDone(e); }}>完成</button>
-                      )}
+                      {/* 已完成/已过期的条目不挂「完成」按钮：已经完成的东西再点一次「完成」是矛盾的，
+                          改成静默的对勾，只用来说明状态 */}
+                      {e.done
+                        ? <span className="calv-item__ok" title="已完成"><Icon name="check" size={11} strokeWidth={3} /></span>
+                        : <button className="calv-item__done" onClick={(ev) => { ev.stopPropagation(); markDone(e); }}>完成</button>}
                     </div>
                   );
                 })}
