@@ -20,6 +20,7 @@
  *   node scripts/qa-e2e.mjs perf       # 大数据量性能（500 岗位 / 400 投递 / 600 事件）
  *   node scripts/qa-e2e.mjs appcat     # 投递记录两级下钻：7 类别卡/计数/预览≤3/下钻/返回/搜索收敛/行内改状态
  *   node scripts/qa-e2e.mjs pline      # 进度线编辑器：跨卡列对齐（勾选/删除同一竖线）/ 三档宽度不溢出 + 截图
+ *   node scripts/qa-e2e.mjs calv       # 日历页「月历下方一大片空白」：量左右两列底部落差（1440/1080/390）
  *   node scripts/qa-e2e.mjs typing     # 弹窗内真实键盘输入：焦点是否被父组件重渲染抢走（关键回归）
  *   node scripts/qa-e2e.mjs bankrepo   # 题库「分类卡墙→题库卡墙→题组列表」三级卡片墙（v7）：建分类/建题库/散题/
  *                                      #   批量归入/搜索收敛/整场导入=一张题组卡+展开重排解散/题库换分类题跟着走/
@@ -4215,6 +4216,91 @@ async function scenarioOnboard(page) {
  *
  *   QZ_NO_SANDBOX=1 QZ_CLOUD=1 QZ_BASE=http://127.0.0.1:4173/ node scripts/qa-e2e.mjs pline
  */
+/**
+ * 日历页「空白」巡检：月视图与右栏的高度差。
+ *
+ * 用户反馈的是观感：「月历卡下面一大片空的」。这类问题 DOM 断言测不出来，
+ * 只能量几何 —— 左列（月视图）底部和右列（接下来要做的 / 待办 / 截止）底部差多少，
+ * 差值大于一屏的 1/5 时，页面看起来就是「左边塌了」。
+ *
+ *   QZ_NO_SANDBOX=1 QZ_CLOUD=1 QZ_PKG=scripts/fixtures/calendar-messy.json \
+ *   QZ_BASE=http://127.0.0.1:4173/ node scripts/qa-e2e.mjs calv
+ */
+async function scenarioCalv(page) {
+  const ok = (m) => console.log('✅ ' + m);
+  const bad = (m) => console.log('❌ ' + m);
+  await page.goto();
+  await injectHelpers(page);
+  await page.eval(`return window.__q.click('.nav__item', '日程');`);
+  await page.waitFor(`!!document.querySelector('.calv')`, 8000);
+  await sleep(900);
+
+  const geo = await page.eval(`
+    const box = (s) => {
+      const el = document.querySelector(s);
+      if (!el) return null;
+      const b = el.getBoundingClientRect();
+      return { top: Math.round(b.top), bottom: Math.round(b.bottom), h: Math.round(b.height), w: Math.round(b.width) };
+    };
+    const cell = document.querySelector('.calv-cell');
+    return {
+      main: box('.calv-main'), side: box('.calv-side'), body: box('.calv-body'),
+      cells: box('.calv-cells'), legend: box('.calv-legend'), day: box('.calv-day'),
+      cellH: cell ? Math.round(cell.getBoundingClientRect().height) : 0,
+      rows: document.querySelectorAll('.calv-cells > .calv-cell').length / 7,
+      vh: window.innerHeight,
+      dayPanel: !!document.querySelector('.calv-day'),
+    };
+  `);
+  console.log('日历几何:', JSON.stringify(geo));
+  if (!geo.main || !geo.side) { bad('月视图或右栏没渲染，跳过'); return; }
+
+  const gap = geo.side.bottom - geo.main.bottom;
+  console.log(`左列底部 ${geo.main.bottom} / 右栏底部 ${geo.side.bottom} → 落差 ${gap}px（视口 ${geo.vh}）`);
+  if (gap > geo.vh * 0.2) bad(`左列比右栏矮 ${gap}px，月历下方是一片空白`);
+  else ok(`左右两列落差 ${gap}px，在可接受范围`);
+  if (!geo.dayPanel) console.log('· 选中日详情未渲染（selected 为空）');
+  await page.shot('calv-1440');
+
+  const send = (m, p) => page.cdp.send(m, p, page.sid);
+  /* 用户截图那档：1080×760 的窗口（截图里正是这个宽度）—— 这一档最容易出现「左列短一截」 */
+  await send('Emulation.setDeviceMetricsOverride', { width: 1080, height: 760, deviceScaleFactor: 1, mobile: false });
+  await sleep(600);
+  const mid = await page.eval(`
+    const b = (s) => { const el = document.querySelector(s); if (!el) return null; const r = el.getBoundingClientRect(); return { bottom: Math.round(r.bottom), h: Math.round(r.height) }; };
+    return { main: b('.calv-main'), side: b('.calv-side'), day: b('.calv-day'), vh: window.innerHeight };
+  `);
+  const midGap = mid.side && mid.main ? mid.side.bottom - mid.main.bottom : 0;
+  console.log(`1080×760：左列底 ${mid.main && mid.main.bottom} / 右栏底 ${mid.side && mid.side.bottom} → 落差 ${midGap}px`);
+  if (midGap > mid.vh * 0.2) bad(`1080 档左列比右栏矮 ${midGap}px，下面会空一片`);
+  await page.shot('calv-1080');
+
+  /* 5 行的月份（本月是 6 行）才是最容易「左列短一截」的：月历少一整行 92px */
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
+  await sleep(300);
+  await page.eval(`const b = document.querySelectorAll('.calv-month__nav'); b[b.length - 1].click(); return 'OK';`);
+  await sleep(600);
+  const next = await page.eval(`
+    const b = (s) => { const el = document.querySelector(s); if (!el) return null; const r = el.getBoundingClientRect(); return Math.round(r.bottom); };
+    return { rows: document.querySelectorAll('.calv-cells > .calv-cell').length / 7, main: b('.calv-main'), side: b('.calv-side') };
+  `);
+  const nextGap = next.side - next.main;
+  console.log(`下个月（${next.rows} 行）：左列底 ${next.main} / 右栏底 ${next.side} → 落差 ${nextGap}px`);
+  if (nextGap > 200) bad(`5 行月份下左列比右栏矮 ${nextGap}px，月历下方会空一片`);
+  else ok(`5 行月份落差 ${nextGap}px`);
+  await page.shot('calv-next-month');
+
+  await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
+  await sleep(600);
+  const narrow = await page.eval(`
+    const el = document.querySelector('.app__scroll');
+    return { scrollW: el.scrollWidth, clientW: el.clientWidth };
+  `);
+  if (narrow.scrollW > narrow.clientW + 1) bad(`390px 横向溢出 ${narrow.scrollW - narrow.clientW}px`);
+  else ok('390px 无横向溢出');
+  await page.shot('calv-390');
+}
+
 async function scenarioPline(page) {
   const ok = (m) => console.log('✅ ' + m);
   const bad = (m) => console.log('❌ ' + m);
@@ -4765,6 +4851,7 @@ try {
   if (scenario === 'perf') { await scenarioPerf(page); }
   if (scenario === 'appcat') { page.reset(); await scenarioAppCat(page); }
   if (scenario === 'pline') { page.reset(); await scenarioPline(page); }
+  if (scenario === 'calv') { page.reset(); await scenarioCalv(page); }
   if (scenario === 'mailsend') { page.reset(); await scenarioMailSend(page); }
   result = { errors: page.errors };
 } catch (e) {
