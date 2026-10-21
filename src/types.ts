@@ -35,10 +35,33 @@ export interface ProfileData {
 export type AppStatus =
   | 'todo' | 'filling' | 'submitted' | 'test' | 'interview' | 'offer' | 'reject';
 
+/**
+ * 投递进度线上的一个节点。
+ *
+ * v7 起它不再只是「状态变更流水」，而是**这个岗位的进度线**：网申 → 笔试 → 面试 → Offer，
+ * 每个节点带自己的日期与时间，日历上的笔试/面试日程就是从这条线派生出来的。
+ *
+ * 为什么要把笔面时间放在投递记录里而不是日历里（2026-10-20）：
+ *   原先日历与投递记录各存一份，投递改成「面试」不会产生任何日程，用户只能去日历里
+ *   手建一条日期默认是"今天"、标题没有岗位的空事件，之后两边互不同步 —— 于是「日历
+ *   看不到投递记录里的信息」。现在只在投递记录里写一次，日历是它的投影。
+ */
 export interface TimelineEntry {
+  /** 稳定标识（日历派生事件的 id 靠它反查回写）。老数据没有，迁移时补 */
+  id?: string;
   status: AppStatus;
-  at: string;        // ISO date
+  at: string;        // YYYY-MM-DD
+  /** HH:mm —— 笔试/面试的具体时间；纯状态变更节点留空 */
+  time?: string;
+  /** 地点 / 线上会议室链接 */
+  place?: string;
   note?: string;
+  /**
+   * 该节点是否已经发生。
+   * 老数据的 timeline 全部是「已发生」的历史记录，迁移时统一补 true；
+   * 新加的面试节点默认 false（计划中），过期后可在进度线上勾掉。
+   */
+  done?: boolean;
 }
 
 export interface Application {
@@ -69,6 +92,8 @@ export interface CalEvent {
   type: EventType;
   appId?: string;
   note?: string;
+  /** 地点 / 线上会议链接（笔试、面试常用） */
+  place?: string;
   source: 'manual' | 'application' | 'mail' | 'import';
   done?: boolean;
 }

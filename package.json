@@ -19,7 +19,13 @@
     "check:rules": "node scripts/build-rules.mjs --if-stale",
     "test:search": "esbuild scripts/test-web-search.mjs --bundle --format=esm --platform=node --outfile=node_modules/.tmp/test-web-search.mjs --log-level=error && node node_modules/.tmp/test-web-search.mjs",
     "test:richtext": "node scripts/qa-richtext.mjs",
-    "test:storage": "node scripts/qa-storage-quota.mjs"
+    "test:storage": "node scripts/qa-storage-quota.mjs && node scripts/qa-jobs-cleanup.mjs && node scripts/qa-calendar-agenda.mjs && node scripts/qa-agenda-window.mjs && node scripts/qa-app-timeline.mjs && node scripts/qa-deadline-brief.mjs && node scripts/qa-profile-shape.mjs",
+    "test:jobs-cleanup": "node scripts/qa-jobs-cleanup.mjs",
+    "test:calendar": "node scripts/qa-calendar-agenda.mjs && node scripts/qa-agenda-window.mjs",
+    "test:agenda": "node scripts/qa-agenda-window.mjs",
+    "test:timeline": "node scripts/qa-app-timeline.mjs",
+    "test:brief": "node scripts/qa-deadline-brief.mjs",
+    "test:profile": "node scripts/qa-profile-shape.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",

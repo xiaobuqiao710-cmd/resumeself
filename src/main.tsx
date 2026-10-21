@@ -6,6 +6,11 @@ import './styles/components.css';
 /* skins.css 必须排在 components.css **之后**：皮肤的变量层与 components.css 里那批
    `:root[data-theme="light"] …` 覆盖是同特异性的，靠文档顺序分胜负（见 skins.css 顶部约定 ①）。 */
 import './styles/skins.css';
+/* 今日总览（首页）自己的骨架样式，排在 skins.css 之后：它只引用变量，
+   皮肤层要能覆盖到它。其余 12 个模块的样式仍在 components.css 里。 */
+import './styles/dashboard.css';
+/* 日历屏的骨架样式，与首页同一套语言（浅格 + 细网格线 + 单行事件条）。 */
+import './styles/calendar.css';
 import { applySkinToDocument, readSavedSkin } from './lib/skins';
 import { checkNewVersion, healIfStale, reloadToLatest } from './lib/selfHeal';
 import { prefetchModules } from './lib/modules';

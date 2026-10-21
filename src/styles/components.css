@@ -263,6 +263,8 @@
 .segmented__btn {
   padding: 6px 14px; border-radius: var(--r-pill);
   font-size: 12.5px; font-weight: 620; color: var(--tx-3);
+  /* 胶囊标签不该断行：窄屏下「进度线 (4)」曾被挤成竖排四行的一块方砖 */
+  white-space: nowrap;
   transition: all var(--t-fast) var(--ease);
 }
 .segmented__btn:hover { color: var(--tx-1); }
@@ -293,7 +295,7 @@
 }
 .modal--wide { max-width: 900px; }
 .modal__head { padding: 20px 22px 14px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid rgba(255,255,255,.07); flex-shrink: 0; }
-.modal__title { font-size: 17px; font-weight: 700; letter-spacing: -.02em; }
+.modal__title { font-size: 17px; font-weight: 700; letter-spacing: -.02em; text-wrap: balance; }
 .modal__body { padding: 20px 22px; overflow-y: auto; flex: 1; min-height: 0; }
 .modal__foot { padding: 14px 22px 20px; display: flex; justify-content: flex-end; gap: 10px; border-top: 1px solid rgba(255,255,255,.07); flex-wrap: wrap; flex-shrink: 0; }
 
@@ -455,6 +457,14 @@
 .cal__num { font-size: 12.5px; font-weight: 640; color: var(--tx-2); }
 .cal__cell--today .cal__num { color: #fff; background: var(--accent-grad); width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; }
 .cal__ev { font-size: 10.5px; font-weight: 600; padding: 2px 6px; border-radius: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-left: 2.5px solid; }
+/* 不参与提醒的事件（已收工单位的截止、已过期事项）：整体压淡，
+   一眼能看出「它还在记录里，但不再占用注意力」——日历变乱的主因就是这些和真日程同样显眼。 */
+.cal__ev--muted { opacity: .38; font-weight: 500; }
+/* 已过去的日期格：不整格变灰（那会让整页发暗），只把底色压一档 */
+.cal__cell--passed { opacity: .72; }
+.cal__cell--passed:hover { opacity: 1; }
+/* 「已错过」的日程行：红左线 + 轻微底色，提醒这是欠账而不是计划 */
+.cal-agenda__row--passed { border-left: 2px solid var(--danger); background: color-mix(in srgb, var(--danger) 6%, transparent); }
 .cal__more { font-size: 10px; color: var(--tx-3); font-weight: 600; }
 .ev-deadline { background: rgba(251,113,133,.16); color: #fecdd3; border-color: var(--danger); }
 .ev-interview { background: rgba(110,231,255,.16); color: #a5f3fc; border-color: var(--accent-1); }
@@ -539,6 +549,179 @@
 .timeline::before { content:""; position:absolute; left: 7px; top: 4px; bottom: 4px; width: 2px; background: linear-gradient(to bottom, var(--accent-1), var(--accent-2), transparent); border-radius: 2px; }
 .timeline__item { position: relative; padding-bottom: 16px; }
 .timeline__item::before { content:""; position:absolute; left: -21px; top: 4px; width: 12px; height: 12px; border-radius: 50%; background: var(--bg-1); border: 2.5px solid var(--accent-2); }
+
+/* ---------- 投递进度线编辑器（投递记录 → 详情 → 进度线） ----------
+   这条线既是岗位的时间主线，也是日历上笔试/面试的**唯一真源**（见 lib/appTimeline.ts）。
+
+   2026-10-21 第二轮（用户截图反馈「这页呈现有问题」：两张空心大卡、控件挤在左边）：
+   上一轮已把「无标签的下拉 + 补丁式 `--:--`」修成有标签的小表单，但**行内排布**没解决 ——
+   控件全挤在左侧三分之一，勾选框飘到最右，中间空出 300 多 px；而没有时间的节点还少一列，
+   于是两张卡的勾选框、删除图标各落一处。看得出「散架」的其实是**列不对齐**，不是留白本身。
+   这一轮的口径：
+     · 第一行是七列 grid（阶段 / 日期 / 时间 / 引导线 / 相对天数 / 勾选 / 删除），
+       时间列**始终占位**（非约定阶段给一个「—」），跨卡列宽一致，右侧图标自然成一条竖线；
+     · 中间空档用一条点线接过去 —— 纸质表单里的「引导线」，比留白更像有意的排版；
+     · 卡片内的输入框改成「纸上一道填空线」（无框、只有下划线），焦点落到哪条才亮强调色，
+       不再是一堆灰色小方框摞在卡里；
+     · 空时间给一颗「未定」虚线胶囊，点了才长出 type=time —— `--:--` 那种「控件坏了吧」的观感消失；
+     · 已发生的节点整卡压到 .75、并隐藏相对天数（事办完了，「已过 6 天」只是噪音），
+       hover / 聚焦恢复全亮，翻旧账时仍读得清。 */
+.pline { position: relative; padding-left: 18px; }
+.pline::before {
+  content: ""; position: absolute; left: 8px; top: 10px; bottom: 10px; width: 2px;
+  background: var(--glass-brd-strong); border-radius: 2px;
+}
+.pline__node { position: relative; margin-bottom: 12px; }
+.pline__node:last-child { margin-bottom: 0; }
+.pline__dot {
+  position: absolute; left: -14px; top: 19px; width: 10px; height: 10px;
+  border-radius: 50%; box-sizing: border-box;
+  background: var(--bg-1); border: 2px solid var(--glass-brd-strong);
+  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.pline__node.is-upcoming .pline__dot,
+.pline__node.is-next .pline__dot { background: var(--accent-2); border-color: var(--accent-2); }
+.pline__node.is-missed .pline__dot { background: var(--bg-1); border-color: var(--danger); }
+.pline__node.is-done .pline__dot { background: var(--tx-4); border-color: var(--tx-4); }
+.pline__box {
+  position: relative;
+  padding: 9px 12px 8px; border-radius: var(--r-sm);
+  border: 1px solid var(--glass-brd); background: var(--glass-bg-strong);
+  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease), opacity var(--t-fast) var(--ease);
+}
+.pline__node.is-next .pline__box {
+  border-color: var(--accent-2); background: var(--glass-bg-strong);
+  box-shadow: 0 0 0 1px var(--accent-ring);
+}
+/* 已发生的节点压暗但不隐藏：翻旧账时还要读得出当时填了什么。
+   压到 .62 时按钮与勾选框一起糊掉、卡片又空又灰，这轮收到 .75 并允许聚焦回满。 */
+.pline__node.is-done .pline__box { opacity: .75; }
+.pline__node.is-done:hover .pline__box,
+.pline__node.is-done:focus-within .pline__box { opacity: 1; }
+
+/* 第一行：七列定宽 —— 列宽恒定是「两张卡看起来对齐」的全部秘密 */
+.pline__row {
+  display: grid;
+  grid-template-columns: 124px 176px 134px minmax(24px, 1fr) 62px 88px 28px;
+  align-items: center;
+  column-gap: 10px;
+}
+.pline__row--sub {
+  margin-top: 8px;
+  padding-top: 7px;
+  border-top: 1px solid var(--glass-brd);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  column-gap: 16px;
+}
+/* 非约定阶段只有一个「备注」：让它自己占满，不要留半格空白 */
+.pline__row--sub-one { grid-template-columns: minmax(0, 1fr); }
+.pline__cell { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.pline__cell--grow { min-width: 0; }
+.pline__lbl {
+  font-size: 11px; font-weight: 640; color: var(--tx-3);
+  letter-spacing: .02em; white-space: nowrap; flex: none;
+}
+/* 非约定阶段没有时间：给一个破折号占住这一列，只是为了让右边的图标列对齐 */
+.pline__lbl--dim { color: var(--tx-4); opacity: .55; }
+/* 中间的点线引导：从日期一路接到勾选框，填掉那段说不上是空白的空白 */
+.pline__gap {
+  height: 1px; margin: 0 4px; align-self: center;
+  border-bottom: 1px dotted var(--glass-brd-strong); opacity: .6;
+}
+.pline__rel {
+  font-size: 11px; font-style: normal; color: var(--accent-2);
+  text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.pline__rel.is-past { color: var(--danger); font-weight: 620; }
+.select.pline__status { width: 96px; }
+.input.pline__date { width: 148px; }
+.input.pline__time { width: 106px; }
+/* 卡片内的控件一律「纸上填空线」：无框、只有下划线，焦点时才亮强调色 */
+.pline__box .input, .pline__box .select {
+  background: transparent;
+  border-color: transparent;
+  border-bottom-color: var(--glass-brd-strong);
+  border-radius: 6px 6px 0 0;
+  padding-left: 6px; padding-right: 6px;
+}
+.pline__box .select { padding-right: 26px; background-position: right 6px center; }
+.pline__box .input:hover, .pline__box .select:hover { background: var(--glass-bg); }
+.pline__box .input:focus, .pline__box .select:focus {
+  background: var(--glass-bg);
+  border-color: transparent;
+  border-bottom-color: var(--accent-2);
+  box-shadow: 0 1px 0 0 var(--accent-2);
+}
+/* 空时间的「未定」胶囊：点了才展开真正的 time 控件 */
+.pline__slot {
+  flex: 1 1 auto; min-width: 0; height: 27px; padding: 0 12px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: var(--r-pill); cursor: pointer;
+  border: 1px dashed var(--glass-brd-strong); background: transparent;
+  color: var(--tx-4); font-size: 11.5px;
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+.pline__slot:hover { color: var(--accent-2); border-color: var(--accent-2); }
+.pline__done {
+  display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+  width: 88px; padding: 5px 0; border-radius: var(--r-pill); cursor: pointer;
+  font-size: 11.5px; color: var(--tx-3);
+  border: 1px solid var(--glass-brd); background: transparent;
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.pline__done input { accent-color: var(--accent-2); margin: 0; }
+.pline__done:hover { border-color: var(--glass-brd-strong); color: var(--tx-2); }
+.pline__done.is-on { color: var(--accent-2); border-color: var(--accent-2); background: var(--accent-ring); }
+.pline__del {
+  display: inline-grid; place-items: center;
+  width: 28px; height: 28px; border-radius: 8px; cursor: pointer;
+  border: 1px solid transparent; background: transparent; color: var(--tx-3);
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.pline__del:hover { color: var(--danger); border-color: var(--glass-brd); background: var(--glass-bg); }
+.pline__lead {
+  display: flex; align-items: flex-start; gap: 7px; margin-bottom: 12px;
+  font-size: 12.5px; line-height: 1.6; color: var(--tx-2);
+}
+.pline__lead svg { flex: none; margin-top: 2px; color: var(--accent-2); }
+.pline__lead b { font-weight: 680; color: var(--tx-1); }
+.pline__empty {
+  padding: 18px; text-align: center; border-radius: var(--r-sm);
+  border: 1px dashed var(--glass-brd-strong);
+}
+.pline__add {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+  margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--glass-brd);
+}
+/* 弹窗收窄到放不下七列时：撤掉中间的引导线，控件改弹性宽度（列仍是列，只是变窄）。
+   「还有 N 天 / 已过 N 天」必须留下 —— 它是这条线唯一在说紧迫感的地方，
+   撤掉之后 780px 下四张卡看起来完全一样，哪场要赴全靠读日期数字。 */
+@media (max-width: 820px) {
+  .pline__row { grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr) minmax(0, 1fr) 60px 88px 28px; }
+  .pline__gap { display: none; }
+  .select.pline__status, .input.pline__date, .input.pline__time { width: 100%; }
+}
+@media (max-width: 620px) {
+  /* 窄屏：回到单列（一行一个字段）。
+     试过两列：390px 下日期框只剩 130px，「2026/10/15」当场被裁成「2026/10/1」，
+     「已提交」也被挤成「已提」—— 省下的高度不值这个价。 */
+  .pline { padding-left: 14px; }
+  .pline__dot { left: -11px; top: 17px; }
+  .pline__row { grid-template-columns: minmax(0, 1fr); row-gap: 7px; }
+  .pline__row--sub { grid-template-columns: minmax(0, 1fr); row-gap: 6px; }
+  .pline__cell > .input, .pline__cell > .select, .pline__cell > .pline__slot {
+    flex: 1 1 auto; width: auto; min-width: 0;
+  }
+  .pline__rel { text-align: left; }
+  /* 删除键收到卡片右上角：竖排时它若还占一行，会把卡片撑得又高又空 */
+  .pline__box { padding-right: 36px; }
+  .pline__del { position: absolute; top: 5px; right: 4px; }
+  .pline__done { justify-self: start; }
+  /* 详情弹窗头部：「状态胶囊 + 详情/进度线」在窄屏会互相挤扁，允许换行 */
+  .modal .row-between { flex-wrap: wrap; row-gap: 10px; }
+  /* 「公司 · 岗位」这种长标题在 390px 下会把最后一个字挤成孤行（text-wrap: balance 也救不了） */
+  .modal__title { font-size: 14.5px; line-height: 1.35; }
+}
 
 .mobile-only { display: none !important; }
 

@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useMemo, useRef, useState,
 import type {
   ProfileData, Application, CalEvent, Rec, Toast, ToastKind, AppStatus, ViewId,
   JobPosting, JobStatus, Question, QuestionBank, BankCategory, CompanyProfile,
-  Offer, InterviewLog, MaterialItem, ResumeVersion, Contact, RemindConfig,
+  Offer, InterviewLog, MaterialItem, ResumeVersion, Contact, RemindConfig, TimelineEntry,
 } from '../types';
 import { FIXED_VALUES } from '../data/formSchema';
 import { SEED_PROFILE, MIGRATION_PROJECTS } from '../data/seed';
@@ -10,6 +10,7 @@ import { uid, todayISO, sameCompanyStem, stripDecor } from '../lib/util';
 import { normTitle } from '../lib/dedupe';
 import { defaultCategories, inferCategoryIdOrFallback, FALLBACK_CAT_ID } from '../lib/bankMeta';
 import { planReconcile, applyReconcile, summarizeReconcile, type ReconcilePlan } from '../lib/reconcile';
+import { stageId, isScheduledStage, foldStageEventsIntoApps, deriveStageEvents } from '../lib/appTimeline';
 import {
   isAutoSyncOn, pullSyncDoc, parseSyncDoc, hashText, lastSyncHash, markSynced,
   markSyncOk, markSyncFail, markFileChanged,
@@ -27,7 +28,7 @@ import {
  * 注意：版本号变化**不再清空数据**，而是走 migrate() 逐级迁移（旧数据原样保留），
  * 并在迁移前存一份本机快照（见 lib/backup.ts）。
  */
-const DATA_VERSION = 6;
+const DATA_VERSION = 7;
 
 export const DEFAULT_REMIND: RemindConfig = {
   enabled: false,
@@ -42,16 +43,37 @@ function emptyProfile(): ProfileData {
   return JSON.parse(JSON.stringify(SEED_PROFILE));
 }
 
-/** 增量迁移：保留已有数据，仅追加缺失的项目经历（避免老用户重复添加） */
-function migrateProfile(profile: ProfileData): ProfileData {
-  const existing = profile.multi?.project || [];
+/**
+ * 结构补全 + 增量迁移。
+ *
+ * ⚠️ 2026-10-18 修一个会让**所有板块一起白屏**的崩溃：
+ *   原实现只补「项目经历」这一项，却假定 `profile`、`profile.single`、`profile.multi` 一定存在。
+ *   而来源本来就不保证这一点 —— 云端文档可能来自更高版本、手工整理的备份、别人给的还原包，
+ *   外部工具写进来的 JSON 也可能只有 `{basic: {...}}`。
+ *   `(m.profile) ?? emptyProfile()` 挡住的只是「整块缺失」，**残缺的块照样穿过去**，
+ *   于是 `profile.single` 是 undefined，Dashboard / Database / Resume / docx / ai 里
+ *   上百处 `profile.single.personal` 一起抛 `Cannot read properties of undefined (reading 'personal')`。
+ *
+ * 现在的口径：**用种子数据的结构当模板**，逐层补上缺失的单值板块与多值板块；
+ * 用户已有的字段一个不动。这样任何残缺来源进来都只是一个「填了一部分」的资料库，而不是白屏。
+ */
+function migrateProfile(profile?: Partial<ProfileData> | null): ProfileData {
+  const seed = emptyProfile();
+  const src = (profile || {}) as Partial<ProfileData>;
+  const single: Record<string, Rec> = { ...seed.single };
+  for (const [k, v] of Object.entries(src.single || {})) {
+    if (v && typeof v === 'object' && !Array.isArray(v)) single[k] = v as Rec;
+  }
+  const multi: Record<string, Rec[]> = { ...seed.multi };
+  for (const [k, v] of Object.entries(src.multi || {})) {
+    if (Array.isArray(v)) multi[k] = v as Rec[];
+  }
+
+  const existing = multi.project || [];
   const existingNames = new Set(existing.map((p) => p.name));
   const toAdd = MIGRATION_PROJECTS.filter((p) => !existingNames.has(p.name));
-  if (toAdd.length === 0) return profile;
-  return {
-    ...profile,
-    multi: { ...profile.multi, project: [...existing, ...toAdd] },
-  };
+  if (toAdd.length === 0) return { single, multi };
+  return { single, multi: { ...multi, project: [...existing, ...toAdd] } };
 }
 
 interface Persisted {
@@ -132,6 +154,31 @@ function emptyData(): DataState {
 function migrate(raw: Record<string, unknown>): Persisted {
   const d = { ...raw } as Persisted & Record<string, unknown>;
   const from = Number(d._v || 1);
+  /**
+   * v7：投递记录长出「进度线」。
+   *
+   * 起因（用户 2026-10-20 反馈）：日历看不到投递记录里的信息。根因是投递记录里压根没有
+   * 笔试/面试的时间字段，日历只能靠手建一条日期默认"今天"的空事件，两边各存一份且互不同步。
+   *
+   * 这一版把笔面日程的**唯一真源**搬进投递记录：`Application.timeline` 从"状态变更流水"
+   * 升级为"岗位进度线"，每个节点带 id / 日期 / 时间 / 地点 / 是否已发生。
+   * 日历上的笔试面试改为由这条线派生（见 lib/appTimeline.ts），不再单独存一份。
+   *
+   * 迁移做两件事，都幂等：
+   *   ① 老节点补 id 与 done（老数据全部是已发生的历史，done 缺省 true）；
+   *   ② 已存在的、挂得上投递记录的笔面/Offer 日历事件**折进**进度线，随后从 events 里移除
+   *      —— 否则日历上会出现"派生一条 + 原有那条"两份一模一样的日程。
+   *      挂不上投递的（投递已被删、或手工建的独立日程）一律原样保留。
+   */
+  if (from < 7) {
+    /* 具体折叠规则见 lib/appTimeline.ts 的 foldStageEventsIntoApps（纯函数，有回归测试） */
+    const r = foldStageEventsIntoApps(
+      (d.applications ?? []) as Application[],
+      (d.events ?? []) as CalEvent[],
+    );
+    d.applications = r.applications;
+    d.events = r.events;
+  }
   if (from < 6) {
     const cats: BankCategory[] = Array.isArray(d.bankCategories) ? (d.bankCategories as BankCategory[]) : [];
     const byId = new Map(cats.map((c) => [c.id, c]));
@@ -188,7 +235,7 @@ function migrate(raw: Record<string, unknown>): Persisted {
       ...a,
       timeline: Array.isArray(a.timeline) && a.timeline.length
         ? a.timeline
-        : [{ status: a.status || 'todo', at: a.createdAt || todayISO() }],
+        : [{ id: uid('stg'), status: a.status || 'todo', at: a.createdAt || todayISO(), done: true }],
     }));
   }
   d._v = DATA_VERSION;
@@ -264,6 +311,10 @@ interface Store extends DataState {
   toasts: Toast[];
   toast: (msg: string, kind?: ToastKind, ttlMs?: number, action?: Toast['action']) => void;
   dismissToast: (id: number) => void;
+  /** 本机配额已满且清快照自救无效：最近这次修改没落盘，用户清理后应重试保存 */
+  storageUnsaved: boolean;
+  /** 每次 +1 表示「请打开设置里的备份与清理」；App 监听它自动展开设置面板 */
+  storageCleanupTick: number;
   /** 当前皮肤（极光 / 纸 / 墨 / 石墨 / 青绿…），决定设计语言；见 lib/skins.ts */
   skin: SkinId;
   setSkin: (id: SkinId) => void;
@@ -272,11 +323,21 @@ interface Store extends DataState {
   updateMulti: (section: string, idx: number, patch: Partial<Rec>) => void;
   addMulti: (section: string, rec?: Rec) => void;
   removeMulti: (section: string, idx: number) => void;
+  /**
+   * 「日历上真正的事件」= 手工事件 + 投递记录进度线的投影。
+   * 提醒条、ICS 导出、AI 上下文都必须用这一个视图，否则又会出现
+   * 「日历里有面试、提醒条不响」这种口径不一致（v7 之前笔面日程存在 events 里，现在不在）。
+   */
+  allEvents: CalEvent[];
   // applications
   addApp: (a: Partial<Application>) => Application;
   updateApp: (id: string, patch: Partial<Application>) => void;
   setStatus: (id: string, status: AppStatus, note?: string) => void;
   removeApp: (id: string) => void;
+  /* ---- 进度线（v7）：日历上的笔试/面试就是这条线的投影，见 lib/appTimeline.ts ---- */
+  addStage: (appId: string, stage: Partial<TimelineEntry>) => void;
+  updateStage: (appId: string, entryId: string, patch: Partial<TimelineEntry>) => void;
+  removeStage: (appId: string, entryId: string) => void;
   // events
   addEvent: (e: Partial<CalEvent>) => CalEvent;
   addEvents: (list: Partial<CalEvent>[]) => number;
@@ -287,6 +348,8 @@ interface Store extends DataState {
   addJobs: (list: Partial<JobPosting>[]) => { added: number; updated: number };
   updateJob: (id: string, patch: Partial<JobPosting>) => void;
   removeJob: (id: string) => void;
+  /** 批量删除岗位（配额清理），返回实际删除条数 */
+  removeJobs: (ids: string[]) => number;
   // question bank
   addQuestion: (q: Partial<Question>) => Question;
   addQuestions: (qs: Partial<Question>[]) => number;
@@ -419,23 +482,27 @@ function runReconcile(
   return plan;
 }
 
-export function StoreProvider({ children, userId = 'default', boot }: {
+export function StoreProvider({ children, userId = 'default', boot, demo = false, initialView }: {
   children: React.ReactNode;
   userId?: string;
   /** 云端启动读取结果（见 CloudBoot 注释）；不传 = 本机模式 */
   boot?: CloudBoot;
+  /** 只读演示模式（?demo=1）：本机缓存与云端一律不碰，数据只活在内存里 */
+  demo?: boolean;
+  /** 演示模式的落地板块（来自 #/xxx）；生产环境不传 */
+  initialView?: ViewId;
 }) {
   /* 云端读到数据就以云端为准（它才是权威来源）；云端为空或读取失败时用本机缓存把界面撑起来，
      保证「断网/额度暂停」时站点仍然完全可用，而不是白屏。 */
   const initial = useMemo(
-    () => (boot?.ok && boot.state ? shape(boot.state) : load(userId)),
-    [userId, boot],
+    () => (boot?.ok && boot.state ? shape(boot.state) : demo ? shape({}) : load(userId)),
+    [userId, boot, demo],
   );
   const storageKey = useMemo(() => `qz.cloud.${userId}`, [userId]);
 
   /* 云端写入开关：只有「读到了云端」或「云端确认是空的」才允许回写。
      读取失败时若照样回写，本机这份可能过期的缓存就会覆盖掉云端更新的数据。 */
-  const [cloudEnabled, setCloudEnabled] = useState(!!(boot?.ok));
+  const [cloudEnabled, setCloudEnabled] = useState(!!(boot?.ok) && !demo);
   const cloudEnabledRef = useRef(cloudEnabled);
   cloudEnabledRef.current = cloudEnabled;
   const [cloud, setCloud] = useState<CloudStatus>(() => (
@@ -472,9 +539,16 @@ export function StoreProvider({ children, userId = 'default', boot }: {
   const [versions, setVersions] = useState<ResumeVersion[]>(initial.versions);
   const [contacts, setContacts] = useState<Contact[]>(initial.contacts);
   const [remind, setRemindState] = useState<RemindConfig>(initial.remind);
-  const [view, setView] = useState<ViewId>('dashboard');
+  const [view, setView] = useState<ViewId>(initialView ?? 'dashboard');
   const [toasts, setToasts] = useState<Toast[]>([]);
   const storageWarnedRef = useRef(false);   // 存储写满只提醒一次，避免刷屏
+  /* 「配额满」告警出现时，本机这份状态还有没有没落盘的改动。
+     用途：告警消失之前用户万一直接关掉标签页，得先知道「最近的修改不会自己回来」；
+     用户点了「导出备份」/「清理数据」之后这个标记会被消费掉，避免误导。 */
+  const [storageUnsaved, setStorageUnsaved] = useState(false);
+  /* 清理弹窗的打开信号。配额告警和设置面板不在同一个组件里（告警在 store，
+     设置面板在 App），用 Store 上的信号做单向通知：App 监听后自动打开清理入口。 */
+  const [storageCleanupTick, setStorageCleanupTick] = useState(0);
   /* 换皮肤时的过渡计时器（本机计时，不进 state —— 它只驱动一次 CSS 过渡，不该参与渲染） */
   const skinTransTimer = useRef(0);
   const adoptedRawRef = useRef<string | null>(null);   // 刚从别的标签页接纳过来的原始串
@@ -525,12 +599,22 @@ export function StoreProvider({ children, userId = 'default', boot }: {
     }
   }, [userId]);
 
+  /* toast 必须在下面的「写本机」effect 之前定义：配额满时要弹一条可点的告警，
+     而 effect 在运行时求值 `toast` 这个绑定 —— 放在后面会撞上 TDZ。 */
+  const toast = useCallback((msg: string, kind: ToastKind = 'ok', ttlMs = 3200, action?: Toast['action']) => {
+    const id = Date.now() + Math.random();
+    setToasts((t) => [...t, { id, kind, msg, action }]);
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), ttlMs);
+  }, []);
+
   useEffect(() => {
     const data: Persisted = {
       _v: DATA_VERSION, profile, applications, events, theme, skin, resumeText,
       jobs, questions, banks, bankCategories, companies, offers, interviews, materials, versions, contacts, remind,
     };
     const serialized = JSON.stringify(data);
+    /* 演示模式一律不写本机存储：看一眼截图不该在用户浏览器里留下任何东西 */
+    if (demo) return;
     /* 刚从另一个标签页接纳过来的内容：原样回写毫无意义，还会在两边来回触发 storage 事件。
        比字符串相等即可 —— 两边都是同一份 state 的 JSON.stringify，口径一致。 */
     if (adoptedRawRef.current && adoptedRawRef.current === serialized) {
@@ -551,6 +635,8 @@ export function StoreProvider({ children, userId = 'default', boot }: {
       let saved = false;
       try { localStorage.setItem(storageKey, serialized); saved = true; } catch { /* 仍写不进 */ }
       if (saved) {
+        storageWarnedRef.current = false;
+        setStorageUnsaved(false);
         if (freed > 0) {
           setToasts((t) => [...t, {
             id: Date.now(),
@@ -558,13 +644,20 @@ export function StoreProvider({ children, userId = 'default', boot }: {
             msg: `本机存储已满，已自动清理旧快照腾出 ${fmtBytes(freed)}，本次修改已保存。`,
           }]);
         }
-      } else if (!storageWarnedRef.current) {
-        storageWarnedRef.current = true;
-        setToasts((t) => [...t, {
-          id: Date.now(),
-          kind: 'err',
-          msg: '本机浏览器存储已满：这次修改可能存不下来。请到「设置 → 数据与备份」导出备份，再清理不需要的数据（例如岗位库里早已截止/不投的岗位）。',
-        }]);
+      } else {
+        /* 连清空全部快照都腾不出位置 —— 说明大头不在快照里（证件照 dataURL、AI 会话历史、
+           云端同步用的上一版原文都可能很大），此时**只能靠用户自己删数据**。
+           告警从一次变成常驻（关掉前不再刷屏），并且这次失败的修改要记下来，
+           让用户清理完之后能一键重试，而不是以为存上了。 */
+        setStorageUnsaved(true);
+        if (!storageWarnedRef.current) {
+          storageWarnedRef.current = true;
+          toast(
+            '本机浏览器存储已满：这次修改可能存不下来。请到「设置 → 数据与备份」导出备份，再清理不需要的数据（例如岗位库里早已截止/不投的岗位）。',
+            'err', 20000,
+            { label: '打开备份与清理', run: () => { setStorageCleanupTick((n) => n + 1); } },
+          );
+        }
       }
     }
     /* 云端：本机永远先写（保证断网也不丢），再防抖推云端 */
@@ -692,11 +785,6 @@ export function StoreProvider({ children, userId = 'default', boot }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const toast = useCallback((msg: string, kind: ToastKind = 'ok', ttlMs = 3200, action?: Toast['action']) => {
-    const id = Date.now() + Math.random();
-    setToasts((t) => [...t, { id, kind, msg, action }]);
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), ttlMs);
-  }, []);
   const dismissToast = useCallback((id: number) => setToasts((t) => t.filter((x) => x.id !== id)), []);
 
   /**
@@ -810,7 +898,7 @@ export function StoreProvider({ children, userId = 'default', boot }: {
       link: a.link, salary: a.salary, notes: a.notes, contact: a.contact,
       submittedAt: a.submittedAt,
       createdAt: todayISO(), updatedAt: todayISO(),
-      timeline: a.timeline || [{ status: a.status || 'todo', at: todayISO() }],
+      timeline: a.timeline || [{ id: uid('stg'), status: a.status || 'todo', at: todayISO(), done: true }],
     };
     const nextApps = [app, ...appsRef.current];
     appsRef.current = nextApps;
@@ -826,6 +914,66 @@ export function StoreProvider({ children, userId = 'default', boot }: {
        否则又回到「投递改了、岗位卡没变」的老问题。 */
     if (patch.status) runReconcile(jobsRef.current, nextApps, setJobs, toast, { silent: true }, jobsRef);
   }, [toast]);
+
+  /* ------------------------------------------------------------------ *
+   * 进度线（v7）
+   *
+   * 这三个方法是日历与投递详情之间唯一的写入通道。日历上改一条笔试/面试的时间，
+   * 落到这里就是改投递记录进度线上的那个节点 —— 不存在第二份数据。
+   * ------------------------------------------------------------------ */
+
+  /** 进度线按日期稳定排序：同日保持原有先后（用户手动调过的顺序不该被抖动） */
+  const orderLine = (line: TimelineEntry[]): TimelineEntry[] => line
+    .map((t, i) => ({ t, i }))
+    .sort((x, y) => (x.t.at || '').localeCompare(y.t.at || '') || x.i - y.i)
+    .map((x) => x.t);
+
+  const addStage = useCallback((appId: string, stage: Partial<TimelineEntry>) => {
+    const nextApps = appsRef.current.map((a) => {
+      if (a.id !== appId) return a;
+      const line = Array.isArray(a.timeline) ? a.timeline : [];
+      const entry: TimelineEntry = {
+        id: stage.id || uid('stg'),
+        status: (stage.status as AppStatus) || a.status,
+        at: stage.at || todayISO(),
+        time: stage.time || undefined,
+        place: stage.place || undefined,
+        note: stage.note || undefined,
+        done: stage.done ?? false,
+      };
+      return { ...a, timeline: orderLine([...line, entry]), updatedAt: todayISO() };
+    });
+    appsRef.current = nextApps;
+    setApplications(nextApps);
+  }, []);
+
+  const updateStage = useCallback((appId: string, entryId: string, patch: Partial<TimelineEntry>) => {
+    const nextApps = appsRef.current.map((a) => {
+      if (a.id !== appId) return a;
+      const line = Array.isArray(a.timeline) ? a.timeline : [];
+      let touched = false;
+      const next = line.map((t, i) => {
+        if (stageId(t, i) !== entryId) return t;
+        touched = true;
+        /* 老节点可能没有 id：一旦被编辑就补上，保证后续增删改都有稳定锚点 */
+        return { ...t, ...patch, id: t.id || uid('stg') };
+      });
+      if (!touched) return a;
+      return { ...a, timeline: orderLine(next), updatedAt: todayISO() };
+    });
+    appsRef.current = nextApps;
+    setApplications(nextApps);
+  }, []);
+
+  const removeStage = useCallback((appId: string, entryId: string) => {
+    const nextApps = appsRef.current.map((a) => {
+      if (a.id !== appId) return a;
+      const line = Array.isArray(a.timeline) ? a.timeline : [];
+      return { ...a, timeline: line.filter((t, i) => stageId(t, i) !== entryId), updatedAt: todayISO() };
+    });
+    appsRef.current = nextApps;
+    setApplications(nextApps);
+  }, []);
   /**
    * 更新投递状态，并**双向联动岗位库**：
    * 进入「已提交/笔试/面试/Offer」→ 对应岗位标记为「已投递」（截止提醒随之停止）；
@@ -842,7 +990,12 @@ export function StoreProvider({ children, userId = 'default', boot }: {
       if (a.id !== id) return a;
       return {
         ...a, status,
-        timeline: [...a.timeline, { status, at: todayISO(), note }],
+        /* 进度线节点带 id 与完成语义：笔试/面试/Offer 是「待赴的约」（done=false，
+           会进日历的「接下来要做的」），其余状态是已经发生的事实（done=true，只作历史）。 */
+        timeline: [...(Array.isArray(a.timeline) ? a.timeline : []), {
+          id: uid('stg'), status, at: todayISO(), note,
+          done: !isScheduledStage(status),
+        }],
         updatedAt: todayISO(),
         submittedAt: status === 'submitted' ? todayISO() : a.submittedAt,
       };
@@ -993,6 +1146,14 @@ export function StoreProvider({ children, userId = 'default', boot }: {
     setJobs((xs) => xs.map((j) => (j.id === id ? { ...j, ...patch, updatedAt: todayISO() } : j)));
   }, []);
   const removeJob = useCallback((id: string) => setJobs((xs) => xs.filter((j) => j.id !== id)), []);
+  /** 批量删除岗位，返回实际删除条数（配额清理用：一次摘掉一组不会再投的岗位） */
+  const removeJobs = useCallback((ids: string[]): number => {
+    const set = new Set(ids);
+    if (!set.size) return 0;
+    let n = 0;
+    setJobs((xs) => xs.filter((j) => { const drop = set.has(j.id); if (drop) n++; return !drop; }));
+    return n;
+  }, []);
 
   const addQuestion = useCallback((q: Partial<Question>): Question => {
     const item: Question = {
@@ -1428,14 +1589,40 @@ export function StoreProvider({ children, userId = 'default', boot }: {
     setRemindState({ ...DEFAULT_REMIND });
   }, []);
 
+  /**
+   * 日历视图：手工事件 + 投递进度线投影。
+   *
+   * 过滤掉 events 里**已经被进度线覆盖**的笔面事件 —— 迁移（v7）会把老的笔面日程折进进度线
+   * 并移出 events，但云端合并、旧备份还原、或直接导入 v7 文档仍可能带回来，一律以投递记录为准。
+   *
+   * 判断口径必须是「进度线里确实存在同一天同一阶段的节点」，而不是「只要有 appId 就藏掉」：
+   * 后者会让那些 appId 还在、但进度线上没有对应节点的旧事件**凭空消失**
+   * （实测一份 v7 文档里就有这种孤儿，藏掉之后国开行那场笔试在日历上就没了）。
+   */
+  const allEvents = useMemo(() => {
+    const covered = new Set<string>();
+    for (const a of applications) {
+      for (const t of (Array.isArray(a.timeline) ? a.timeline : [])) {
+        if (t.at && isScheduledStage(t.status)) covered.add(`${a.id}|${t.status}|${t.at}`);
+      }
+    }
+    const manual = events.filter(
+      (e) => !(e.appId && isScheduledStage(e.type as AppStatus) && covered.has(`${e.appId}|${e.type}|${e.date}`)),
+    );
+    return [...manual, ...deriveStageEvents(applications)];
+  }, [events, applications]);
+
   const value: Store = {
-    profile, applications, events, theme, skin, resumeText, view, setView,
+    profile, applications, events, allEvents, theme, skin, resumeText, view, setView,
     storageKey, userId, cloud, pushToCloud, enableCloud,
     toasts, toast, dismissToast, setSkin,
+  /** 本机配额满且自救无效（最近这次修改没落盘）；cleanup 后消费掉 */
+  storageUnsaved, storageCleanupTick,
     setSingle, updateMulti, addMulti, removeMulti,
     addApp, updateApp, setStatus, removeApp,
+    addStage, updateStage, removeStage,
     addEvent, addEvents, updateEvent, removeEvent, setResumeText,
-    jobs, addJob, addJobs, updateJob, removeJob,
+    jobs, addJob, addJobs, updateJob, removeJob, removeJobs,
     questions, addQuestion, addQuestions, updateQuestion, removeQuestion, removeQuestions,
     addQuestionSet, reorderGroup, renameGroup, dissolveGroup, mergeIntoGroup,
     banks, bankCategories, addCategory, updateCategory, removeCategory,
@@ -1462,6 +1649,9 @@ function applyFixed(rec: Rec): Rec {
   for (const [k, v] of Object.entries(FIXED_VALUES)) if (out[k] === undefined) out[k] = v;
   return out;
 }
+
+/** 仅供回归测试使用：验证 profile 结构容错（见 scripts/qa-profile-shape.mjs）。不参与生产逻辑。 */
+export const __testMigrateProfile = migrateProfile;
 
 export function useStore(): Store {
   const c = useContext(Ctx);

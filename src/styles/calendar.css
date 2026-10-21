@@ -1,0 +1,253 @@
+/* =========================================================================
+   日历（与首页「今天一屏」同一套语言）
+   -------------------------------------------------------------------------
+   约定：
+   - 只用 global.css 的品牌变量，不引入新色相；皮肤切换靠变量自然变化。
+   - 不改数据与口径：这里只管形状/密度/层级。月视图仍只放笔试 / 面试 / Offer / 待办，
+     截止日不进日历（见 Calendar.tsx 里 shownEvents 的注释）。
+   - 旧日历的问题（真机截图取证）：
+       ① 日期格是 96px 高的圆角胶囊，事件条只剩 2 个字（「10:00 中电…」「20:00 补齐…」）；
+       ② 网格线由 8px 的缝隙拼出来，整片日历像一块色块棋盘，今天是哪天都靠找；
+       ③ 右侧 340px 栏与左侧月视图争注意力，待办、截止、已结束三张卡片堆到页面下半屏；
+       ④ 390px 下七列被挤到每天只剩 2 个字符，右栏整体掉到首屏之外。
+   新做法：
+   - 日期格改成「浅格 + 细网格线」，格内最多 2 条单行事件，其余收成 +N；
+   - 选中日与右栏详情合并成一张「选中日详情」，跨全宽放在月视图下方（不再锚在 340px 窄栏里）；
+   - 右栏只留三张卡：接下来要做的 / 待办 / 还没提交的截止；
+   - 窄屏：月视图保持七列（日期格压到 44px 高，只显示事件数点），「接下来要做的」升到月视图之前。
+   ========================================================================= */
+
+/* ---------------- 页头：标题 + 月份切换 + 动作 ---------------- */
+.calv { display: flex; flex-direction: column; gap: 14px; }
+
+.calv-head {
+  display: flex; align-items: flex-end; justify-content: space-between;
+  gap: 16px; flex-wrap: wrap;
+}
+.calv-head__l { min-width: 0; }
+.calv-head__t {
+  margin: 0; font-size: 24px; font-weight: 760; letter-spacing: -.035em; line-height: 1.2;
+  color: var(--tx-1);
+}
+.calv-head__d { margin-top: 5px; font-size: 12.5px; line-height: 1.55; color: var(--tx-3); }
+
+.calv-month { display: flex; align-items: center; gap: 8px; flex: none; }
+.calv-month__label {
+  min-width: 104px; text-align: center;
+  font-size: 15px; font-weight: 720; letter-spacing: -.02em; color: var(--tx-1);
+  font-variant-numeric: tabular-nums;
+}
+.calv-month__nav {
+  width: 28px; height: 28px; display: grid; place-items: center; cursor: pointer;
+  border-radius: 50%; color: var(--tx-2);
+  border: 1px solid var(--glass-brd); background: var(--glass-bg);
+  transition: border-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.calv-month__nav:hover { border-color: var(--glass-brd-strong); color: var(--tx-1); }
+.calv-month__today {
+  height: 28px; padding: 0 12px; cursor: pointer;
+  font: inherit; font-size: 12px; font-weight: 640; color: var(--tx-2);
+  border-radius: var(--r-pill);
+  border: 1px solid var(--glass-brd); background: var(--glass-bg);
+  transition: border-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.calv-month__today:hover { border-color: var(--glass-brd-strong); color: var(--tx-1); }
+.calv-head__acts { display: flex; gap: 8px; flex: none; }
+
+/* ---------------- 一行统计（今天 / 7 天内 / 已错过） ---------------- */
+.calv-stat {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px 18px;
+  padding: 9px 0; border-top: 1px solid var(--glass-brd); border-bottom: 1px solid var(--glass-brd);
+  font-size: 12px; color: var(--tx-3);
+}
+.calv-stat b {
+  margin-left: 5px; font-size: 14px; font-weight: 740; color: var(--tx-1);
+  font-variant-numeric: tabular-nums;
+}
+.calv-stat__warn b { color: var(--warn); }
+.calv-stat__bad b { color: var(--danger); }
+.calv-stat__btn {
+  margin-left: auto; padding: 0; cursor: pointer; font: inherit; font-size: 11.5px;
+  color: var(--tx-3); background: none; border: none; border-bottom: 1px dashed var(--glass-brd-strong);
+}
+.calv-stat__btn:hover { color: var(--accent-2); }
+
+/* ---------------- 布局：月视图 + 右栏 ---------------- */
+.calv-body {
+  display: grid; grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 22px; align-items: start;
+}
+.calv-main { min-width: 0; }
+.calv-side { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.calv-side > .dash-sect { min-width: 0; }
+
+/* ---------------- 月视图 ---------------- */
+.calv-grid { border-top: 1px solid var(--glass-brd-strong); }
+.calv-dow {
+  display: grid; grid-template-columns: repeat(7, minmax(0, 1fr));
+  font-size: 10.5px; font-weight: 700; letter-spacing: .08em; color: var(--tx-4);
+}
+.calv-dow > span { padding: 8px 0 7px; text-align: left; }
+.calv-dow > span.is-weekend { color: var(--tx-3); }
+
+.calv-cells {
+  display: grid; grid-template-columns: repeat(7, minmax(0, 1fr));
+  border-left: 1px solid var(--glass-brd); border-top: 1px solid var(--glass-brd);
+}
+.calv-cell {
+  min-height: 92px; padding: 7px 8px 8px;
+  border-right: 1px solid var(--glass-brd); border-bottom: 1px solid var(--glass-brd);
+  display: flex; flex-direction: column; gap: 3px;
+  cursor: pointer; transition: background var(--t-fast) var(--ease);
+}
+.calv-cell:hover { background: var(--glass-bg); }
+.calv-cell__num {
+  font-size: 12.5px; font-weight: 640; color: var(--tx-2);
+  font-variant-numeric: tabular-nums; line-height: 20px;
+}
+/* 今天：不用整格高亮，只在日期数字上点一个实心圆 —— 找「今天」靠一个点就够，
+   整格高亮会和「被选中」抢同一个视觉位。 */
+.calv-cell--today .calv-cell__num {
+  width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center;
+  color: #fff; background: var(--accent-grad); font-weight: 740;
+}
+.calv-cell--out .calv-cell__num { color: var(--tx-4); }
+.calv-cell--out { background: rgba(0,0,0,.08); }
+:root[data-theme="light"] .calv-cell--out { background: rgba(0,0,0,.02); }
+.calv-cell--sel { background: var(--accent-grad-soft); box-shadow: inset 0 0 0 1px var(--accent-ring); }
+.calv-cell--sel:hover { background: var(--accent-grad-soft); }
+
+/* 格内事件条：单行、不换行、类型靠左侧 2px 色线区分（沿用 .ev-* 的语义色） */
+.calv-ev {
+  display: flex; align-items: center; gap: 4px; min-width: 0;
+  height: 19px; padding: 0 5px; border-radius: 4px;
+  font-size: 10.5px; font-weight: 620; line-height: 19px;
+  overflow: hidden; white-space: nowrap;
+  border-left: 2px solid transparent;
+}
+.calv-ev__t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.calv-ev__time {
+  flex: none; font-weight: 700; font-variant-numeric: tabular-nums; opacity: .85;
+}
+.calv-more { padding-left: 2px; font-size: 10px; font-weight: 620; color: var(--tx-4); }
+
+/* 窄屏（≤560px）：七列保持，但每格只留日期 + 一个事件数点。
+   七列不折成周视图，是因为月视图的价值就是「一眼看整月」，折了也读不出哪天有事。 */
+.calv-cell__dots { display: none; }
+
+/* ---------------- 选中日详情（跨全宽，月视图下方） ---------------- */
+.calv-day {
+  margin-top: 18px; padding: 14px 16px 8px;
+  border-radius: var(--r-md); border: 1px solid var(--glass-brd); background: var(--glass-bg);
+}
+.calv-day__h {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  padding-bottom: 10px; margin-bottom: 2px; border-bottom: 1px solid var(--glass-brd);
+}
+.calv-day__t { font-size: 14px; font-weight: 720; color: var(--tx-1); letter-spacing: -.01em; }
+.calv-day__rel { font-size: 11.5px; font-weight: 620; color: var(--accent-2); }
+.calv-day__acts { margin-left: auto; display: flex; gap: 6px; }
+.calv-day__none { padding: 12px 0; font-size: 12.5px; color: var(--tx-4); }
+.calv-day__row {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 10px 0; border-bottom: 1px solid var(--glass-brd); cursor: pointer;
+}
+.calv-day__row:last-child { border-bottom: none; }
+.calv-day__row:hover .calv-day__title { color: var(--accent-1); }
+.calv-day__time {
+  flex: none; width: 46px; padding-top: 1px;
+  font-size: 12.5px; font-weight: 660; color: var(--accent-1); font-variant-numeric: tabular-nums;
+}
+.calv-day__main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.calv-day__title { font-size: 13px; font-weight: 640; color: var(--tx-1); line-height: 1.35; }
+.calv-day__meta {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
+  font-size: 11.5px; color: var(--tx-4);
+}
+.calv-day__kind {
+  padding: 1px 7px; border-radius: var(--r-pill); font-size: 10.5px; font-weight: 660;
+  border: 1px solid transparent;
+}
+
+/* ---------------- 右栏：接下来要做的 ---------------- */
+.calv-item {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 9px 0; border-bottom: 1px solid var(--glass-brd); cursor: pointer;
+}
+.calv-item:last-child { border-bottom: none; }
+.calv-item:hover .calv-item__t { color: var(--accent-1); }
+.calv-item__d {
+  flex: none; width: 40px; display: flex; flex-direction: column; align-items: center;
+  line-height: 1.15;
+}
+.calv-item__m { font-size: 9.5px; color: var(--tx-4); }
+.calv-item__n {
+  font-size: 15px; font-weight: 740; color: var(--tx-2); font-variant-numeric: tabular-nums;
+}
+.calv-item--today .calv-item__n { color: var(--danger); }
+.calv-item--soon .calv-item__n { color: var(--warn); }
+.calv-item__b { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.calv-item__t {
+  font-size: 12.5px; font-weight: 620; color: var(--tx-1); line-height: 1.35;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.calv-item__meta {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 5px;
+  font-size: 10.5px; color: var(--tx-4);
+}
+.calv-item__done {
+  flex: none; padding: 2px 8px; cursor: pointer;
+  font: inherit; font-size: 10.5px; font-weight: 620; color: var(--tx-3);
+  background: none; border: 1px solid var(--glass-brd); border-radius: var(--r-pill);
+}
+.calv-item__done:hover { color: var(--accent-1); border-color: var(--accent-ring); }
+.calv-item--passed { border-left: 2px solid var(--danger); padding-left: 8px; }
+
+/* ---------------- 右栏：待办 ---------------- */
+.calv-todo__add { display: flex; gap: 7px; margin-bottom: 10px; }
+.calv-todo__add .input--sm { min-width: 0; }
+.calv-todo .list-row { padding: 6px 0; gap: 9px; }
+.calv-todo .list-row:hover { background: none; border-color: transparent; }
+
+/* ---------------- 窄屏 ---------------- */
+@media (max-width: 1080px) {
+  .calv-body { grid-template-columns: minmax(0, 1fr) 300px; gap: 18px; }
+}
+
+@media (max-width: 900px) {
+  /* 单栏：先把「接下来要做的」提到月视图之前（手机上先看今天要做什么，再看整月） */
+  .calv-body { grid-template-columns: minmax(0, 1fr); gap: 18px; }
+  .calv-side { order: -1; }
+  .calv-cell { min-height: 78px; padding: 5px 5px 6px; }
+  .calv-ev { font-size: 9.5px; height: 17px; line-height: 17px; padding: 0 3px; }
+}
+
+@media (max-width: 560px) {
+  .calv-head__t { font-size: 20px; }
+  .calv-head { gap: 10px; }
+  .calv-head__acts { width: 100%; }
+  .calv-head__acts .btn { flex: 1; justify-content: center; }
+
+  .calv-cell { min-height: 44px; padding: 4px 3px; align-items: center; gap: 2px; }
+  .calv-cell__num { font-size: 11.5px; line-height: 18px; }
+  .calv-cell--today .calv-cell__num { width: 18px; height: 18px; }
+  .calv-dow > span { text-align: center; font-size: 9.5px; padding: 6px 0; }
+
+  /* 事件条退成「按类型分色的计数点」，标题在点开当日详情后看 */
+  .calv-ev { display: none; }
+  .calv-more { display: none; }
+  .calv-cell__dots {
+    display: flex; align-items: center; justify-content: center; gap: 2px; flex-wrap: wrap;
+  }
+  .calv-cell__dots i {
+    width: 4px; height: 4px; border-radius: 50%; background: var(--tx-3);
+  }
+  .calv-cell__dots i.ev-todo { background: var(--ok); }
+  .calv-cell__dots i.ev-test { background: var(--warn); }
+  .calv-cell__dots i.ev-interview { background: var(--accent-1); }
+  .calv-cell__dots i.ev-offer { background: var(--accent-2); }
+  .calv-cell__dots i.ev-other { background: var(--accent-3); }
+
+  .calv-day { margin-top: 14px; padding: 12px 12px 4px; }
+  .calv-day__time { width: 40px; }
+}

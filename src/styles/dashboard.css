@@ -1,0 +1,158 @@
+/* =========================================================================
+   今日总览（方向 B「今天一屏」）
+   -------------------------------------------------------------------------
+   约定与全局保持一致：
+   - 只用 global.css 的品牌变量，不引入新色相；皮肤（data-skin）切换时靠变量自然变化。
+   - 不使用 transform / filter 包裹 .glass 祖先，避免 backdrop-filter 被合成层吃掉
+     （旧版 .rise 的 translateY + .glass 背板叠加时，玻璃卡会塌成一块紫雾）。
+   - 窄屏（≤860px）单独覆写，390px 下首屏必须还能说清「今天要干什么」。
+   ========================================================================= */
+
+.dash { display: flex; flex-direction: column; gap: 18px; }
+
+/* ---------------- ① 页头 ---------------- */
+.dash-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; }
+.dash-head__l { min-width: 0; }
+.dash-head__hello {
+  margin: 0; font-size: 27px; font-weight: 780; letter-spacing: -.035em; line-height: 1.2;
+  color: var(--tx-1);
+}
+.dash-head__count {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
+  margin-top: 9px; font-size: 12.5px; color: var(--tx-3); line-height: 1.5;
+}
+.dash-head__count b { color: var(--tx-1); font-size: 14px; font-weight: 720; font-variant-numeric: tabular-nums; }
+.dash-head__count i { font-style: normal; color: var(--tx-4); }
+.dash-head__mail {
+  display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; cursor: pointer;
+  font: inherit; font-size: 11.5px; font-weight: 620; color: var(--accent-2);
+  background: var(--accent-grad-soft); border: 1px solid var(--accent-ring); border-radius: var(--r-pill);
+}
+.dash-head__hint { margin-top: 8px; font-size: 12px; color: var(--tx-4); }
+.dash-head__acts { display: flex; gap: 8px; flex: none; }
+
+/* ---------------- ② 本周七格 ---------------- */
+.dash-week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; }
+.dash-week__c {
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
+  padding: 10px 4px 9px; border-radius: var(--r-sm); cursor: pointer;
+  border: 1px solid var(--glass-brd); background: var(--glass-bg);
+  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.dash-week__c:hover { border-color: var(--glass-brd-strong); }
+.dash-week__d { font-size: 10px; letter-spacing: .08em; color: var(--tx-4); }
+.dash-week__n {
+  font-size: 19px; font-weight: 720; letter-spacing: -.03em; line-height: 1;
+  color: var(--tx-3); font-variant-numeric: tabular-nums;
+}
+.dash-week__dot {
+  height: 13px; font-size: 10px; line-height: 13px; font-weight: 700;
+  color: var(--accent-2); font-variant-numeric: tabular-nums;
+}
+.dash-week__c.is-has .dash-week__n { color: var(--tx-1); }
+.dash-week__c.is-has { border-color: var(--glass-brd-strong); }
+.dash-week__c.is-now { background: var(--accent-grad-soft); border-color: var(--accent-ring); }
+.dash-week__c.is-now .dash-week__d { color: var(--accent-2); font-weight: 700; }
+.dash-week__c.is-now .dash-week__n { color: var(--tx-1); }
+
+/* ---------------- ③ 今天 / 明天 / 之后 ---------------- */
+.dash-cols { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 30px; align-items: start; }
+.dash-main, .dash-side { display: flex; flex-direction: column; gap: 22px; min-width: 0; }
+
+.dash-sect { min-width: 0; }
+.dash-sect__h {
+  display: flex; align-items: baseline; gap: 8px;
+  padding-bottom: 7px; margin-bottom: 2px; border-bottom: 1px solid var(--glass-brd-strong);
+  font-size: 12px; font-weight: 700; letter-spacing: .06em; color: var(--tx-2);
+}
+.dash-sect__h em { font-style: normal; font-size: 11px; font-weight: 600; color: var(--accent-2); letter-spacing: 0; }
+.dash-sect__more {
+  margin-left: auto; padding: 0; cursor: pointer; font: inherit; font-size: 11.5px;
+  font-weight: 560; letter-spacing: 0; color: var(--tx-3); background: none; border: none;
+}
+.dash-sect__more:hover { color: var(--accent-2); }
+.dash-sect__none { padding: 13px 0 12px; font-size: 12.5px; color: var(--tx-4); }
+
+.dash-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 11px 0; border-bottom: 1px solid var(--glass-brd);
+}
+.dash-row:last-child { border-bottom: none; }
+.dash-row__time {
+  flex: none; width: 52px; font-size: 12.5px; font-weight: 640; letter-spacing: .01em;
+  color: var(--accent-1); font-variant-numeric: tabular-nums;
+}
+.dash-row__main { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.dash-row__t {
+  font-size: 13.5px; font-weight: 640; color: var(--tx-1); line-height: 1.35;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dash-row__m { font-size: 11px; color: var(--tx-4); }
+.dash-row__rest { flex: none; font-size: 11.5px; color: var(--tx-3); font-variant-numeric: tabular-nums; }
+.dash-row--today .dash-row__rest { color: var(--danger); font-weight: 680; }
+.dash-row--soon .dash-row__rest { color: var(--warn); font-weight: 660; }
+/* 次要行（明天 / 之后）：标题降一档，时间不再抢眼，视觉上让今天站在最前面 */
+.dash-row--dim .dash-row__t { font-weight: 560; color: var(--tx-2); }
+.dash-row--dim .dash-row__time { color: var(--tx-3); font-weight: 560; }
+
+/* ---------------- 资料库完成度（右栏） ---------------- */
+.dash-goal {
+  padding: 14px 15px; border-radius: var(--r-sm);
+  border: 1px solid var(--glass-brd); background: var(--glass-bg);
+}
+.dash-goal__h {
+  display: flex; align-items: baseline; justify-content: space-between;
+  font-size: 12px; font-weight: 700; letter-spacing: .06em; color: var(--tx-2); margin-bottom: 10px;
+}
+.dash-goal__h b { font-size: 24px; font-weight: 780; letter-spacing: -.04em; color: var(--tx-1); font-variant-numeric: tabular-nums; }
+.dash-goal__h b em { font-style: normal; font-size: 12px; color: var(--tx-3); margin-left: 1px; }
+.dash-goal__note { margin-top: 10px; font-size: 11.5px; line-height: 1.6; color: var(--tx-4); }
+.dash-goal .btn { margin-top: 12px; }
+
+/* ---------------- 空状态 ---------------- */
+.dash-empty {
+  display: flex; align-items: flex-start; gap: 12px; padding: 26px 20px;
+  border-radius: var(--r-sm); border: 1px dashed var(--glass-brd-strong); color: var(--tx-3);
+}
+.dash-empty b { display: block; font-size: 13.5px; color: var(--tx-2); margin-bottom: 4px; }
+.dash-empty span { font-size: 12px; color: var(--tx-4); }
+
+/* ---------------- ④ 页脚状态数 ---------------- */
+.dash-foot {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px 18px;
+  padding-top: 12px; border-top: 1px solid var(--glass-brd);
+  font-size: 11.5px; color: var(--tx-4);
+}
+.dash-foot b { margin-left: 4px; font-size: 13px; font-weight: 720; color: var(--tx-2); font-variant-numeric: tabular-nums; }
+.dash-foot__avatar {
+  margin-left: auto; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center;
+  font-size: 10.5px; font-weight: 700; color: var(--tx-2);
+  background: var(--accent-grad-soft); border: 1px solid var(--accent-ring);
+}
+
+/* ---------------- 窄屏 ---------------- */
+@media (max-width: 860px) {
+  .dash { gap: 15px; }
+  .dash-head { flex-direction: column; align-items: flex-start; gap: 12px; }
+  .dash-head__hello { font-size: 22px; }
+  .dash-head__count { font-size: 12px; }
+  .dash-head__acts { width: 100%; }
+  .dash-head__acts .btn { flex: 1; justify-content: center; }
+
+  .dash-week { gap: 5px; }
+  .dash-week__c { padding: 8px 1px 7px; border-radius: var(--r-sm); }
+  .dash-week__d { font-size: 9px; }
+  .dash-week__n { font-size: 15px; }
+  .dash-week__dot { font-size: 9px; height: 12px; line-height: 12px; }
+
+  .dash-cols { grid-template-columns: minmax(0, 1fr); gap: 22px; }
+  .dash-row { gap: 9px; padding: 10px 0; }
+  .dash-row__time { width: 44px; font-size: 12px; }
+  .dash-row__t { font-size: 13px; }
+  .dash-row__rest { font-size: 11px; }
+}
+
+@media (max-width: 420px) {
+  /* 390px：标题允许折两行也不截断，否则「某银行 · 金融科技岗」只剩「某银…」 */
+  .dash-row__t { white-space: normal; overflow: visible; text-overflow: clip; }
+}
